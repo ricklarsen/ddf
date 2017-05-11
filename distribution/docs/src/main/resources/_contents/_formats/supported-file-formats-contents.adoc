@@ -1,4 +1,4 @@
-===== File Formats Supported
+=== File Formats Supported
 
 ${branding} supports a wide variety of file types and data types for ingest.
 The ${branding}'s internal Input Transformers extract the necessary data into a generalized format.
@@ -62,3 +62,11 @@ These are the attributes common to any of the media file types which support add
 * `contact.publisher-name`
 * `contact.point-of-contact-phone`
 * `topic.keyword`
+
+Some file types support attributes unique to that individual type:
+
+.Additional Unique Attributes by File Type
+Mp4:: `ext.mp4.audio-sample-rate`
+
+See <<_all_file_formats_supported,All File Formats Supported>> for a complete list of format-specific attributes.
+
