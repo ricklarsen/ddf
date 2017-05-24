@@ -193,7 +193,7 @@ Only these attribute formats may be used.
 |===
 
 ====== Attribute Naming Conventions
-Catalog taxonomy elements follow the naming convention of `group-or-namespace.specific-term`. Nesting is not permitted. An exception is made for extension fields that are not part of the core taxonomy. These follow the naming convention of `ext.group-or-namespace.specific-term`. Again, nesting is not permitted. Extension fields must be namespaced.
+Catalog taxonomy elements follow the naming convention of `group-or-namespace.specific-term`, except for extension fields outside of the core taxonomy. These follow the naming convention of `ext.group-or-namespace.specific-term` and must be namespaced. Nesting is not permitted.
 
 ===== Result
 
