@@ -14,14 +14,19 @@
 package org.codice.ddf.platform.filter.delegate;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.FilterRegistration;
 import javax.servlet.ServletContext;
 import javax.servlet.SessionCookieConfig;
+import javax.servlet.http.HttpSessionEvent;
+import javax.servlet.http.HttpSessionListener;
 
+import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHandler;
 import org.osgi.framework.Bundle;
@@ -31,8 +36,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Injects the delegating filter into the servletcontext as it is being created.
- * This guarantees that all servlets will have the delegating filter added.
+ * Injects the {@link DelegateServletFilter} into the {@link ServletContext} with properties
+ * filterName = {@link FilterInjector#DELEGATING_FILTER}, urlPatterns =
+ * {@link FilterInjector#ALL_URLS}, and no servlet name as the {@link ServletContext} is being
+ * created. Sets up all {@link javax.servlet.Servlet}s with the {@link DelegateServletFilter}
+ * as the first in the {@link javax.servlet.FilterChain}.
  */
 public class FilterInjector {
 
@@ -42,7 +50,9 @@ public class FilterInjector {
 
     private static final String DELEGATING_FILTER = "delegating-filter";
 
-    private Filter delegatingServletFilter;
+    private final Filter delegateServletFilter;
+
+    private final List<HttpSessionListener> sessionListeners = new ArrayList<>();
 
     /**
      * Creates a new filter injector with the specified filter.
@@ -50,7 +60,7 @@ public class FilterInjector {
      * @param filter filter that should be injected.
      */
     public FilterInjector(Filter filter) {
-        this.delegatingServletFilter = filter;
+        this.delegateServletFilter = filter;
     }
 
     /**
@@ -103,12 +113,18 @@ public class FilterInjector {
             } catch (IllegalAccessException e) {
                 LOGGER.warn(
                         "Unable to get the ServletContextHandler for {}. The delegating filter may not work properly.",
-                        refBundle.getSymbolicName(), e);
+                        refBundle.getSymbolicName(),
+                        e);
             }
 
             if (httpServiceContext != null) {
                 //now that we have the handler, we can muck with the filters and state variables
                 handler = httpServiceContext.getServletHandler();
+
+                SessionHandler sessionHandler = httpServiceContext.getSessionHandler();
+                if (sessionHandler != null) {
+                    sessionHandler.addEventListener(new WrapperListener());
+                }
 
                 if (handler != null) {
                     try {
@@ -142,7 +158,7 @@ public class FilterInjector {
             //This causes the value of "_matchAfterIndex" to jump to 0 which means all web.xml filters will be added in front of it
             //this isn't what we want, so we need to reset it back to what it was before
             FilterRegistration filterReg = context.addFilter(DELEGATING_FILTER,
-                    delegatingServletFilter);
+                    delegateServletFilter);
 
             if (filterReg == null) {
                 filterReg = context.getFilterRegistration(DELEGATING_FILTER);
@@ -152,9 +168,11 @@ public class FilterInjector {
 
             filterReg.addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, ALL_URLS);
         } catch (IllegalStateException ise) {
-            LOGGER.warn(
-                    "Could not inject filter into {} because the servlet was already initialized.",
-                    refBundle.getSymbolicName(), ise);
+            LOGGER.error(
+                    "Could not inject DelegateServletFilter into {} because the servlet was already initialized. This means that SecurityFilters will not be included in {}.",
+                    refBundle.getSymbolicName(),
+                    refBundle.getSymbolicName(),
+                    ise);
         }
 
         if (matchAfterField != null && matchAfterValue != null) {
@@ -170,6 +188,53 @@ public class FilterInjector {
         } else {
             LOGGER.warn(
                     "Unable to set the match after field back to the original value. The delegating filter might be out of order.");
+        }
+    }
+
+    public void addListener(ServiceReference<HttpSessionListener> sessionListener) {
+        if (sessionListener != null) {
+            Bundle refBundle = sessionListener.getBundle();
+            if (refBundle != null) {
+                BundleContext bundlectx = refBundle.getBundleContext();
+                if (bundlectx != null) {
+                    HttpSessionListener service = bundlectx.getService(sessionListener);
+                    if (service != null) {
+                        sessionListeners.add(service);
+                    }
+                }
+            }
+        }
+    }
+
+    public void removeListener(ServiceReference<HttpSessionListener> sessionListener) {
+        if (sessionListener != null) {
+            Bundle refBundle = sessionListener.getBundle();
+            if (refBundle != null) {
+                BundleContext bundlectx = refBundle.getBundleContext();
+                if (bundlectx != null) {
+                    HttpSessionListener service = bundlectx.getService(sessionListener);
+                    if (service != null) {
+                        sessionListeners.remove(service);
+                    }
+                }
+            }
+        }
+    }
+
+    private class WrapperListener implements HttpSessionListener {
+
+        @Override
+        public void sessionCreated(HttpSessionEvent se) {
+            for (HttpSessionListener httpSessionListener : sessionListeners) {
+                httpSessionListener.sessionCreated(se);
+            }
+        }
+
+        @Override
+        public void sessionDestroyed(HttpSessionEvent se) {
+            for (HttpSessionListener httpSessionListener : sessionListeners) {
+                httpSessionListener.sessionDestroyed(se);
+            }
         }
     }
 

@@ -20,7 +20,7 @@ System administrators MUST perform the following steps prior to deploying bundle
 [IMPORTANT]
 ====
 The system administrator must restrict certain directories to ensure that the application (user) cannot access restricted directories on the system.
-For example the `${branding}_USER` should have read-only access to `<${branding}_HOME>`, except for the sub-directories `etc`, `data` and `instances`.
+For example the `${branding}_USER` should have read-only access to `<${branding}_HOME>`, except for the sub-directories `etc`, `data`, `solr` and `instances`.
 ====
 
 .Setting Directory Permissions on Windows
@@ -34,7 +34,7 @@ Set directory permissions on the `<${branding}_HOME>`; all sub-directories excep
 . Select *Check Names*.
 . Select *Apply*.
 .. If prompted *Do you wish to continue*, select *Yes*.
-. Remove all Permission Entries for any groups or users with access to <DIB_HOME> other than *System*, *Administrators*, and *Creator Owner*.
+. Remove all Permission Entries for any groups or users with access to <${branding}_HOME> other than *System*, *Administrators*, and *Creator Owner*.
 .. Note: If prompted with a message such as: *You can’t remove X because this object is inheriting permissions from its parent.* when removing entries from the Permission entries table:
 ... Select *Disable Inheritance*.
 ... Select *Convert Inherited Permissions into explicit permissions on this object*.

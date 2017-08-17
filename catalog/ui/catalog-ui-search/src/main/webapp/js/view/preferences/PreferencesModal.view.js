@@ -157,7 +157,7 @@ define([
         onRender: function () {
             var layerBindings = Backbone.ModelBinder.createDefaultBindings(this.el, 'name');
             this.modelBinder.bind(this.model, this.$el, layerBindings);
-            this.changeShow();           
+            this.changeShow();
         },
         changeShow: function () {
             this.$el.toggleClass('is-disabled', !this.model.get('show'));

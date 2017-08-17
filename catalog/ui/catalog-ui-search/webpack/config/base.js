@@ -71,6 +71,11 @@ module.exports = {
                 from: resolve('node_modules/font-awesome/fonts'),
                 to: resolve('target/webapp/fonts'),
                 force: true
+            },
+            {
+                from: resolve('src/main/webapp/styles/vars.less'),
+                to: resolve('target/webapp/styles/vars.less'),
+                force: true
             }
         ]),
         new HtmlWebpackPlugin({
@@ -136,7 +141,6 @@ module.exports = {
             backboneassociations: 'backbone-associations',
             backboneundo: 'Backbone.Undo.js/Backbone.Undo',
             poller: 'backbone-poller/backbone.poller',
-            underscore: 'lodash',
             marionette: 'backbone.marionette',
             // TODO test combining
             modelbinder: 'backbone.modelbinder/Backbone.ModelBinder',
@@ -151,17 +155,8 @@ module.exports = {
             wreqr: 'js/wreqr',
             properties: 'properties',
             // jquery
-            jqueryuiCore: 'jquery-ui/core',
-            datepicker: 'jquery-ui/datepicker',
-            progressbar: 'jquery-ui/progressbar',
-            slider: 'jquery-ui/slider',
-            mouse: 'jquery-ui/mouse',
-            datepickerOverride: 'jquery/js/plugin/jquery-ui-datepicker-4digitYearOverride-addon',
             purl: 'purl/purl',
             multiselect$: 'jquery-ui-multiselect-widget/src/jquery.multiselect',
-            multiselectfilter: 'jquery-ui-multiselect-widget/src/jquery.multiselect.filter',
-            'jquery.ui.widget': 'jquery-ui/widget',
-            jquerySortable: 'jquery-ui/sortable',
             // map
             //openlayers$: 'openlayers/dist/ol-debug.js',  // useful for debugging openlayers
             //cesium$: 'cesium/Build/CesiumUnminified/Cesium.js',  //useful for debuggin cesium

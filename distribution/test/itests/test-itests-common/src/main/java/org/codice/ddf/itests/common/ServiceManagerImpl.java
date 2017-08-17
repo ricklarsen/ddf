@@ -18,11 +18,7 @@ import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.junit.Assert.fail;
 import static com.jayway.restassured.RestAssured.get;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -42,6 +38,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import javax.management.NotCompliantMBeanException;
+
 import org.apache.commons.lang.StringUtils;
 import org.apache.karaf.bundle.core.BundleInfo;
 import org.apache.karaf.bundle.core.BundleService;
@@ -51,7 +49,7 @@ import org.apache.karaf.features.FeatureState;
 import org.apache.karaf.features.FeaturesService;
 import org.codice.ddf.admin.application.service.ApplicationService;
 import org.codice.ddf.admin.application.service.ApplicationServiceException;
-import org.codice.ddf.ui.admin.api.ConfigurationAdminExt;
+import org.codice.ddf.admin.core.api.Service;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.BundleException;
@@ -59,6 +57,7 @@ import org.osgi.framework.Constants;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.InvalidSyntaxException;
 import org.osgi.framework.ServiceReference;
+import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.cm.Configuration;
 import org.osgi.service.cm.ConfigurationEvent;
 import org.osgi.service.cm.ConfigurationListener;
@@ -135,11 +134,13 @@ public class ServiceManagerImpl implements ServiceManager {
     @Override
     public void stopManagedService(String servicePid) throws IOException {
         Configuration sourceConfig = adminConfig.getConfiguration(servicePid, null);
-        ServiceManagerImpl.ServiceConfigurationListener listener =
-                new ServiceManagerImpl.ServiceConfigurationListener(sourceConfig.getPid());
 
-        adminConfig.getDdfConfigAdmin()
-                .delete(sourceConfig.getPid());
+        try {
+            adminConfig.getAdminConsoleService()
+                    .delete(sourceConfig.getPid());
+        } catch (NotCompliantMBeanException e) {
+            //ignore
+        }
     }
 
     private void startManagedService(Configuration sourceConfig, Map<String, Object> properties)
@@ -156,12 +157,23 @@ public class ServiceManagerImpl implements ServiceManager {
             return;
         }
 
-        bundleContext.registerService(ConfigurationListener.class.getName(), listener, null);
+        ServiceRegistration<?> serviceRegistration = bundleContext.registerService(
+                ConfigurationListener.class.getName(),
+                listener,
+                null);
 
-        waitForService(sourceConfig);
+        try {
+            waitForService(sourceConfig);
+        } catch (NotCompliantMBeanException e) {
+            //ignore
+        }
 
-        adminConfig.getDdfConfigAdmin()
-                .update(sourceConfig.getPid(), properties);
+        try {
+            adminConfig.getAdminConsoleService()
+                    .update(sourceConfig.getPid(), properties);
+        } catch (NotCompliantMBeanException e) {
+            //ignore
+        }
 
         long millis = 0;
         while (!listener.isUpdated() && millis < MANAGED_SERVICE_TIMEOUT) {
@@ -174,6 +186,8 @@ public class ServiceManagerImpl implements ServiceManager {
             }
             LOGGER.info("Waiting for configuration to be updated...{}ms", millis);
         }
+
+        serviceRegistration.unregister();
 
         if (!listener.isUpdated()) {
             throw new RuntimeException(String.format(
@@ -198,10 +212,10 @@ public class ServiceManagerImpl implements ServiceManager {
         return bundleContext;
     }
 
-    private void waitForService(Configuration sourceConfig) {
+    private void waitForService(Configuration sourceConfig) throws NotCompliantMBeanException {
         long waitForService = 0;
         boolean serviceStarted = false;
-        List<Map<String, Object>> servicesList;
+        List<Service> servicesList;
         do {
             try {
                 Thread.sleep(CONFIG_UPDATE_WAIT_INTERVAL_MILLIS);
@@ -218,10 +232,10 @@ public class ServiceManagerImpl implements ServiceManager {
                         TimeUnit.MILLISECONDS.toMinutes(MANAGED_SERVICE_TIMEOUT)));
             }
 
-            servicesList = adminConfig.getDdfConfigAdmin()
+            servicesList = adminConfig.getAdminConsoleService()
                     .listServices();
-            for (Map<String, Object> service : servicesList) {
-                String id = String.valueOf(service.get(ConfigurationAdminExt.MAP_ENTRY_ID));
+            for (Service service : servicesList) {
+                String id = String.valueOf(service.getId());
                 if (id.equals(sourceConfig.getPid()) || id.equals(sourceConfig.getFactoryPid())) {
                     serviceStarted = true;
                     break;
@@ -575,35 +589,6 @@ public class ServiceManagerImpl implements ServiceManager {
         }
 
         LOGGER.info("Sources at {} ready.", path);
-    }
-
-    @Override
-    public void waitForAllConfigurations() throws InterruptedException {
-        long timeoutLimit = System.currentTimeMillis() + HTTP_ENDPOINT_TIMEOUT;
-        String ddfHome = System.getProperty("ddf.home");
-        Path etc = Paths.get(ddfHome, "etc");
-        if (Files.isDirectory(etc)) {
-            boolean available = false;
-            while (!available) {
-                File file = etc.toFile();
-                File[] files = file.listFiles((dir, name) -> name.endsWith(".config"));
-                if (files.length == 0) {
-                    available = true;
-                } else {
-                    if (System.currentTimeMillis() > timeoutLimit) {
-                        String remainingFiles = Arrays.stream(files)
-                                .map(File::getName)
-                                .collect(Collectors.joining("\n\t"));
-                        LOGGER.error(
-                                "Failed waiting for configurations. The following files remain:\n\t{}",
-                                remainingFiles);
-                        printInactiveBundles();
-                        fail("Configurations were not read in time.");
-                    }
-                    Thread.sleep(2000);
-                }
-            }
-        }
     }
 
     @Override

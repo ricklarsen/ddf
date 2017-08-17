@@ -22,12 +22,8 @@ import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.sjms.SjmsComponent;
 import org.apache.camel.component.sjms.jms.ConnectionFactoryResource;
 import org.apache.camel.main.Main;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class CoreProducerConsumerExample extends RouteBuilder {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(CoreProducerConsumerExample.class);
 
     private final int period = 1000;
 
@@ -63,7 +59,7 @@ public class CoreProducerConsumerExample extends RouteBuilder {
     private void createCamelContext() throws Exception {
         CamelContext camelContext = getContext();
         ActiveMQConnectionFactory factory = ActiveMQJMSClient.createConnectionFactory(
-                "(tcp://0.0.0.0:5672,tcp://0.0.0.0:61617)?ha=true;sslEnabled=false;enabledCipherSuites=TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;enabledProtocols=TLSv1.1,TLSv1.2",
+                "(tcp://0.0.0.0:5672,tcp://0.0.0.0:61617)?ha=true;sslEnabled=true;enabledCipherSuites=TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;enabledProtocols=TLSv1.1,TLSv1.2",
                 "name");
         factory.setRetryInterval(1000);
         factory.setRetryIntervalMultiplier(1.0);

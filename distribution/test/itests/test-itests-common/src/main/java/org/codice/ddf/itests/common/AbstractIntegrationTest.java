@@ -13,8 +13,12 @@
  */
 package org.codice.ddf.itests.common;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.with;
 import static org.codice.ddf.itests.common.AbstractIntegrationTest.DynamicUrl.INSECURE_ROOT;
 import static org.codice.ddf.itests.common.AbstractIntegrationTest.DynamicUrl.SECURE_ROOT;
+import static org.codice.ddf.itests.common.csw.CswQueryBuilder.PROPERTY_IS_LIKE;
+import static org.hamcrest.Matchers.hasXPath;
 import static org.ops4j.pax.exam.CoreOptions.cleanCaches;
 import static org.ops4j.pax.exam.CoreOptions.junitBundles;
 import static org.ops4j.pax.exam.CoreOptions.maven;
@@ -30,6 +34,7 @@ import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.keepRunti
 import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.logLevel;
 import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.replaceConfigurationFile;
 import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.useOwnExamBundlesStartLevel;
+import static com.jayway.restassured.RestAssured.given;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,9 +50,12 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.MediaType;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.text.StrSubstitutor;
 import org.apache.karaf.features.BootFinished;
 import org.apache.karaf.features.FeaturesService;
@@ -56,6 +64,7 @@ import org.codice.ddf.itests.common.annotations.PaxExamRule;
 import org.codice.ddf.itests.common.annotations.PostTestConstruct;
 import org.codice.ddf.itests.common.annotations.SkipUnstableTest;
 import org.codice.ddf.itests.common.config.UrlResourceReaderConfigurator;
+import org.codice.ddf.itests.common.csw.CswQueryBuilder;
 import org.codice.ddf.itests.common.security.SecurityPolicyConfigurator;
 import org.codice.ddf.itests.common.utils.LoggingUtils;
 import org.junit.Rule;
@@ -71,6 +80,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
+import com.jayway.restassured.response.ValidatableResponse;
 import com.sun.istack.NotNull;
 
 /**
@@ -88,11 +98,15 @@ public abstract class AbstractIntegrationTest {
 
     protected static final Logger LOGGER = LoggerFactory.getLogger(AbstractIntegrationTest.class);
 
-    protected static final String LOG_CONFIG_PID = AdminConfig.LOG_CONFIG_PID;
+    protected static final String LOGGER_CONFIGURATION_FILE_PATH = "etc/org.ops4j.pax.logging.cfg";
 
-    protected static final String LOGGER_PREFIX = AdminConfig.LOGGER_PREFIX;
+    protected static final String DEFAULT_LOG_LEVEL = "WARN";
 
-    protected static final String KARAF_VERSION = "4.0.7";
+    protected static final String TEST_LOG_LEVEL_PROPERTY = "itestLogLevel";
+
+    protected static final String TEST_SECURITY_LOG_LEVEL_PROPERTY = "securityLogLevel";
+
+    protected static final String KARAF_VERSION = "4.1.1";
 
     protected static final String OPENSEARCH_SOURCE_ID = "openSearchSource";
 
@@ -118,8 +132,6 @@ public abstract class AbstractIntegrationTest {
 
     @Rule
     public PaxExamRule paxExamRule = new PaxExamRule(this);
-
-    protected String logLevel = "";
 
     @Inject
     protected ConfigurationAdmin configAdmin;
@@ -337,17 +349,13 @@ public abstract class AbstractIntegrationTest {
     public void waitForBaseSystemFeatures() {
         try {
             basePort = getBasePort();
-            getAdminConfig().setLogLevels();
             getServiceManager().waitForRequiredApps(getDefaultRequiredApps());
             getServiceManager().waitForAllBundles();
             getCatalogBundle().waitForCatalogProvider();
 
-            getServiceManager().waitForHttpEndpoint(SERVICE_ROOT + "/catalog/query");
+            getServiceManager().waitForHttpEndpoint(SERVICE_ROOT + "/catalog/query?_wadl");
             getServiceManager().waitForHttpEndpoint(SERVICE_ROOT + "/csw?_wadl");
-
-            //currently none of the test use this feature but
-            //it generates a lot of error/warnings so turning it off
-            getServiceManager().stopFeature(false, "catalog-core-backupplugin");
+            getServiceManager().waitForHttpEndpoint(SERVICE_ROOT + "/catalog?_wadl");
 
             getServiceManager().startFeature(true, "search-ui", "search-ui-app", "catalog-ui");
             getServiceManager().waitForAllBundles();
@@ -495,8 +503,7 @@ public abstract class AbstractIntegrationTest {
                 KarafDistributionOption.editConfigurationFilePut(
                         "etc/ddf.security.sts.client.configuration.config",
                         "address",
-                        "\"" + SECURE_ROOT + HTTPS_PORT.getPort()
-                                + "/services/SecurityTokenService?wsdl" + "\""),
+                        SECURE_ROOT + HTTPS_PORT.getPort() + "/services/SecurityTokenService?wsdl"),
                 installStartupFile(getClass().getClassLoader()
                                 .getResourceAsStream(
                                         "ddf.catalog.solr.external.SolrHttpCatalogProvider.config"),
@@ -536,11 +543,41 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected Option[] configureLogLevel() {
-        return options(when(
-                System.getProperty(AdminConfig.TEST_LOGLEVEL_PROPERTY) != null).useOptions(
-                systemProperty(AdminConfig.TEST_LOGLEVEL_PROPERTY).value(System.getProperty(
-                        AdminConfig.TEST_LOGLEVEL_PROPERTY,
-                        ""))));
+        final String logLevel = System.getProperty(TEST_LOG_LEVEL_PROPERTY);
+        final String securityLogLevel = System.getProperty(TEST_SECURITY_LOG_LEVEL_PROPERTY);
+        return options(
+                editConfigurationFilePut(LOGGER_CONFIGURATION_FILE_PATH,
+                    "log4j2.rootLogger.level",
+                        DEFAULT_LOG_LEVEL),
+                when(StringUtils.isNotEmpty(logLevel)).useOptions(combineOptions(
+                        createSetLogLevelOption("ddf", logLevel),
+                        createSetLogLevelOption("org.codice", logLevel))),
+                when(StringUtils.isNotEmpty(securityLogLevel)).useOptions(combineOptions(
+                        createSetLogLevelOption("ddf.security.expansion.impl.RegexExpansion", securityLogLevel),
+                        createSetLogLevelOption("ddf.security.service.impl.AbstractAuthorizingRealm", securityLogLevel))),
+                editConfigurationFilePut("etc/org.ops4j.pax.logging.cfg",
+                        "log4j2.logger.org_apache_activemq_artemis.additivity",
+                        "true"));
+    }
+
+    /**
+     * Creates options to add log configuration lines to the etc/org.ops4j.pax.logging.cfg file.
+     * See {@see org.apache.karaf.log.core.internal.LogServiceLog4j2Impl}.
+     *
+     * @param name  name of the logger to set
+     * @param level String value to set the logger level
+     * @return options to set the log level
+     */
+    protected Option[] createSetLogLevelOption(String name, String level) {
+        final String loggerPrefix = "log4j2.logger.";
+        final String loggerKey = name.replace('.', '_').toLowerCase();
+        return options(
+                editConfigurationFilePut(LOGGER_CONFIGURATION_FILE_PATH,
+                        String.format("%s%s.name", loggerPrefix, loggerKey),
+                        name),
+                editConfigurationFilePut(LOGGER_CONFIGURATION_FILE_PATH,
+                        String.format("%s%s.level", loggerPrefix, loggerKey),
+                        level));
     }
 
     protected Option[] configureIncludeUnstableTests() {
@@ -580,16 +617,6 @@ public abstract class AbstractIntegrationTest {
                             "/etc/users.properties"),
                     installStartupFile(getClass().getResourceAsStream("/etc/test-users.attributes"),
                             "/etc/users.attributes"),
-                    // extra config options for TestConfiguration
-                    installStartupFile(getClass().getResourceAsStream(
-                            "/ddf.test.itests.platform.TestPlatform.startup.config"),
-                            "/etc/ddf.test.itests.platform.TestPlatform.startup.config"),
-                    installStartupFile(getClass().getResourceAsStream(
-                            "/ddf.test.itests.platform.TestPlatform.msf.1.config"),
-                            "/etc/ddf.test.itests.platform.TestPlatform.msf.1.config"),
-                    installStartupFile(getClass().getResourceAsStream(
-                            "/ddf.test.itests.platform.TestPlatform.startup.invalid.config"),
-                            "/etc/ddf.test.itests.platform.TestPlatform.startup.invalid.config"),
                     installStartupFile(getClass().getResourceAsStream("/injections.json"),
                             "/etc/definitions/injections.json"));
         } catch (IOException e) {
@@ -725,11 +752,48 @@ public abstract class AbstractIntegrationTest {
         getServiceManager().waitForAllBundles();
     }
 
+    /**
+     * Clears out the catalog and catalog cache of all 'resource' metacards. Will not return until
+     * all metacards have been removed. Will throw an AssertionError if catalog could not be cleared
+     * within 30 seconds.
+     */
+    public void clearCatalogAndWait() {
+        clearCatalog();
+        clearCache();
+        with().pollInterval(1, SECONDS)
+                .await()
+                .atMost(30, SECONDS)
+                .until(this::isCatalogEmpty);
+    }
+
     public void clearCatalog() {
         console.runCommand(REMOVE_ALL);
     }
 
     public void clearCache() {
         console.runCommand(CLEAR_CACHE);
+    }
+
+    protected boolean isCatalogEmpty() {
+
+        try {
+            String query = new CswQueryBuilder().addAttributeFilter(PROPERTY_IS_LIKE,
+                    "AnyText",
+                    "*")
+                    .getQuery();
+            ValidatableResponse response = given().header(HttpHeaders.CONTENT_TYPE,
+                    MediaType.APPLICATION_XML)
+                    .body(query)
+                    .auth()
+                    .basic("admin", "admin")
+                    .post(CSW_PATH.getUrl())
+                    .then();
+            response.body(hasXPath(
+                    "/GetRecordsResponse/SearchResults[@numberOfRecordsMatched=\"0\"]"));
+            return true;
+        } catch (AssertionError e) {
+            return false;
+        }
+
     }
 }

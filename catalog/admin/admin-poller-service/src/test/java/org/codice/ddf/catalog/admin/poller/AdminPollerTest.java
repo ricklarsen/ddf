@@ -22,7 +22,6 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +35,10 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.shiro.util.CollectionUtils;
+import org.codice.ddf.admin.core.api.ConfigurationStatus;
+import org.codice.ddf.admin.core.api.Metatype;
+import org.codice.ddf.admin.core.api.Service;
+import org.codice.ddf.admin.core.impl.ServiceImpl;
 import org.junit.Before;
 import org.junit.Test;
 import org.osgi.service.cm.Configuration;
@@ -82,7 +85,7 @@ public class AdminPollerTest {
         results = new ArrayList<>();
         results.add(new ResultImpl(metacard1));
 
-        poller = new AdminPollerTest().new MockedAdminPoller(null);
+        poller = new AdminPollerTest().new MockedAdminPoller(null, null);
         poller.setOperationActionProviders(new ArrayList<>());
         poller.setReportActionProviders(new ArrayList<>());
 
@@ -114,7 +117,7 @@ public class AdminPollerTest {
                 getNotHandleableTestActionProvider());
         poller.setReportActionProviders(reportActions);
 
-        List<Map<String, Object>> sources = poller.allSourceInfo();
+        List<Service> sources = poller.allSourceInfo();
         assertThat(sources, notNullValue());
         assertThat(sources.size(), is(2));
 
@@ -123,7 +126,7 @@ public class AdminPollerTest {
         List<Map<String, Object>> configurations = (List) sources.get(1)
                 .get("configurations");
 
-        assertThat(configurations, hasSize(1));
+        assertThat(configurations, hasSize(2));
         Map<String, Object> configurationMap = configurations.get(0);
         assertThat(configurationMap, hasKey("operation_actions"));
         assertThat(configurationMap, hasKey("report_actions"));
@@ -147,8 +150,10 @@ public class AdminPollerTest {
     }
 
     private class MockedAdminPoller extends AdminPollerServiceBean {
-        public MockedAdminPoller(ConfigurationAdmin configAdmin) {
-            super(configAdmin);
+        public MockedAdminPoller(
+                org.codice.ddf.admin.core.api.ConfigurationAdmin configurationAdmin,
+                ConfigurationAdmin configAdmin) {
+            super(configurationAdmin, configAdmin);
         }
 
         @Override
@@ -163,7 +168,18 @@ public class AdminPollerTest {
                 dict.put("service.pid", CONFIG_PID);
                 dict.put("service.factoryPid", FPID);
                 when(config.getProperties()).thenReturn(dict);
-                when(helper.getConfigurations(anyMap())).thenReturn(CollectionUtils.asList(config),
+                Configuration config2 = mock(Configuration.class);
+                when(config2.getPid()).thenReturn(
+                        CONFIG_PID + ConfigurationStatus.DISABLED_EXTENSION);
+                when(config2.getFactoryPid()).thenReturn(
+                        FPID + ConfigurationStatus.DISABLED_EXTENSION);
+                Dictionary<String, Object> dict2 = new Hashtable<>();
+                dict2.put("service.pid", CONFIG_PID + ConfigurationStatus.DISABLED_EXTENSION);
+                dict2.put("service.factoryPid", FPID + ConfigurationStatus.DISABLED_EXTENSION);
+                when(config2.getProperties()).thenReturn(dict);
+                when(helper.getConfigurations(any(Metatype.class))).thenReturn(CollectionUtils.asList(
+                        config,
+                        config2),
                         null);
 
                 // Mock out the sources
@@ -181,13 +197,14 @@ public class AdminPollerTest {
                         badSource));
 
                 // Mock out the metatypes
-                Map<String, Object> metatype = new HashMap<>();
+                Service metatype = new ServiceImpl();
                 metatype.put("id", "OpenSearchSource");
                 metatype.put("OSGI-INF/blueprint/metatype", new ArrayList<Map<String, Object>>());
 
-                Map<String, Object> noConfigMetaType = new HashMap<>();
+                Service noConfigMetaType = new ServiceImpl();
                 noConfigMetaType.put("id", "No Configurations");
-                noConfigMetaType.put("OSGI-INF/blueprint/metatype", new ArrayList<Map<String, Object>>());
+                noConfigMetaType.put("OSGI-INF/blueprint/metatype",
+                        new ArrayList<Map<String, Object>>());
 
                 when(helper.getMetatypes()).thenReturn(CollectionUtils.asList(metatype,
                         noConfigMetaType));

@@ -103,6 +103,8 @@ include::{adoc-include}/_securing/hardening-checklist-contents.adoc[]
 
 include::{adoc-include}/_securing/managing-certificates-contents.adoc[]
 
+include::{adoc-include}/_configuring/configuring-jetty-threadpool-settings-config-contents.adoc[]
+
 === Configuring from the ${admin-console}
 
 include::{adoc-include}/_configuring/admin-console-intro-contents.adoc[]
@@ -140,6 +142,8 @@ include::{adoc-include}/_securing/auditing-contents.adoc[]
 
 include::{adoc-include}/_configuring/configuring-landing-page-contents.adoc[]
 
+include::{adoc-include}/_configuring/configuring-jetty-threadpool-from-admin-console.contents.adoc[]
+
 === Configuring from the ${command-console}
 
 include::{adoc-include}/_configuring/command-console-intro-contents.adoc[]
@@ -155,6 +159,8 @@ include::{adoc-include}/_solr-contents/configuring-solr-from-command-console.ado
 include::{adoc-include}/_configuring/standalone-sts-contents.adoc[]
 
 include::{adoc-include}/_securing/hardening-solr-index-contents.adoc[]
+
+include::{adoc-include}/_configuring/configuring-jetty-threadpool-from-command-console.contents.adoc[]
 
 === Configuring from Configuration Files
 
@@ -234,6 +240,8 @@ include::{adoc-include}/_running/troubleshooting-contents.adoc[]
 include::{adoc-include}/_formats/supported-file-formats-contents.adoc[]
 
 include::{adoc-include}/_running/ingesting-contents.adoc[]
+
+include::{adoc-include}/_running/removing-expired-records-contents.adoc[]
 
 include::{adoc-include}/_running/data-migration-intro-contents.adoc[]
 
@@ -511,6 +519,8 @@ include::{adoc-include}/_transformers/searchui-transformer-contents.adoc[]
 
 include::{adoc-include}/_transformers/xml-query-response-transformer-contents.adoc[]
 
+include::{adoc-include}/_transformers/csv-query-response-transformer-contents.adoc[]
+
 include::{adoc-include}/_transformers/mime-type-mapper-intro-contents.adoc[]
 
 include::{adoc-include}/_transformers/mime-type-mappers-contents.adoc[]
@@ -591,9 +601,9 @@ include::{adoc-include}/_plugins/catalog-backup-plugin-contents.adoc[]
 
 include::{adoc-include}/_plugins/event-processor-contents.adoc[]
 
-include::{adoc-include}/_plugins/metacard-backup-plugin-contents.adoc[]
-
 include::{adoc-include}/_plugins/metacard-backup-filestorage-contents.adoc[]
+
+include::{adoc-include}/_plugins/metacard-backup-s3storage-contents.adoc[]
 
 //post-query
 include::{adoc-include}/_plugins/post-query-plugin-intro-contents.adoc[]
@@ -649,6 +659,8 @@ include::{adoc-include}/_plugins/operation-plugin-contents.adoc[]
 include::{adoc-include}/_plugins/metacardingest-network-contents.adoc[]
 
 include::{adoc-include}/_plugins/developing-plugins-contents.adoc[]
+
+include::{adoc-include}/_plugins/security-audit-plugin-contents.adoc[]
 
 == Operations
 
@@ -917,7 +929,43 @@ include::{adoc-include}/_app-whitelists/spatial-whitelist-contents.adoc[]
 include::{adoc-include}/_app-whitelists/ui-whitelist-contents.adoc[]
 
 [appendix]
-== All File Formats Supported
+== Metadata Attributes
+
+=== Format-specific Attribute Mappings
+
+include::{adoc-include}/_data/format-specific-attributes-intro-contents.adoc[]
+
+include::{adoc-include}/_data/mp4-attributes-contents.adoc[]
+
+=== Catalog Taxonomy
+
+include::{adoc-include}/_data/neutral-taxonomy-intro-contents.adoc[]
+
+include::{adoc-include}/_data/neutral-taxonomy-categories-contents.adoc[]
+
+include::{adoc-include}/_data/core-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/metacard-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/history-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/associations-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/datetime-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/contact-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/location-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/media-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/security-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/topic-attributes-table-contents.adoc[]
+
+include::{adoc-include}/_data/validation-attributes-table-contents.adoc[]
+
+=== All File Formats Supported
 
 include::{adoc-include}/_formats/complete-list-file-types-contents.adoc[]
 

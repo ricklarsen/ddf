@@ -36,7 +36,7 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-core</artifactId>
-            <version>1.1.2</version>
+            <version>${logback.version}</version>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -117,6 +117,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>ddf.admin.core</groupId>
+            <artifactId>admin-core-impl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>ddf.platform.util</groupId>
             <artifactId>platform-util</artifactId>
             <version>${project.version}</version>
@@ -130,6 +135,11 @@
             <groupId>ddf.catalog.core</groupId>
             <artifactId>catalog-core-api-impl</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>${awaitility.version}</version>
         </dependency>
     </dependencies>
 
@@ -183,9 +193,11 @@
                             org.codice.ddf.itests.common.*
                         </Export-Package>
                         <Embed-Dependency>
+                            platform-util,
                             pax-exam-container-karaf,
                             itests,
-                            catalog-core-api-impl
+                            catalog-core-api-impl,
+                            admin-core-impl
                         </Embed-Dependency>
                     </instructions>
                 </configuration>

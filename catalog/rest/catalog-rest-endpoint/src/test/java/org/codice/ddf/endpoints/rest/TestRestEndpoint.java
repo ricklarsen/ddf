@@ -41,6 +41,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import javax.activation.MimeType;
 import javax.servlet.http.HttpServletRequest;
@@ -56,10 +57,9 @@ import org.apache.cxf.jaxrs.ext.multipart.Attachment;
 import org.apache.cxf.jaxrs.ext.multipart.ContentDisposition;
 import org.apache.cxf.jaxrs.ext.multipart.MultipartBody;
 import org.apache.tika.io.IOUtils;
+import org.codice.ddf.platform.util.uuidgenerator.UuidGenerator;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.InvalidSyntaxException;
 import org.osgi.framework.ServiceReference;
@@ -177,7 +177,7 @@ public class TestRestEndpoint {
 
     }
 
-    @Test()
+    @Test
     public void testAddDocumentFrameworkIngestException()
             throws IngestException, SourceUnavailableException, URISyntaxException {
 
@@ -185,7 +185,7 @@ public class TestRestEndpoint {
 
     }
 
-    @Test()
+    @Test
     public void testAddDocumentFrameworkSourceUnavailableException()
             throws IngestException, SourceUnavailableException, URISyntaxException {
 
@@ -193,7 +193,7 @@ public class TestRestEndpoint {
 
     }
 
-    @Test()
+    @Test
     public void testAddDocumentPositiveCase()
             throws IOException, CatalogTransformerException, IngestException,
             SourceUnavailableException, URISyntaxException {
@@ -223,7 +223,7 @@ public class TestRestEndpoint {
                 .toString(), equalTo(SAMPLE_ID));
     }
 
-    @Test()
+    @Test
     public void testAddDocumentWithMetadataPositiveCase()
             throws IOException, CatalogTransformerException, IngestException,
             SourceUnavailableException, URISyntaxException, InvalidSyntaxException,
@@ -247,6 +247,11 @@ public class TestRestEndpoint {
                 return bundleContext;
             }
         };
+
+        UuidGenerator uuidGenerator = mock(UuidGenerator.class);
+        when(uuidGenerator.generateUuid()).thenReturn(UUID.randomUUID()
+                .toString());
+        rest.setUuidGenerator(uuidGenerator);
         rest.setMetacardTypes(Collections.singletonList(BasicTypes.BASIC_METACARD));
         MimeTypeMapper mimeTypeMapper = mock(MimeTypeMapper.class);
         when(mimeTypeMapper.getMimeTypeForFileExtension("txt")).thenReturn("text/plain");
@@ -590,7 +595,7 @@ public class TestRestEndpoint {
      */
     @Test
     public void testGetMetacardAsXml() throws Exception {
-        String filename = "src/test/resources/ValidGeojson.json";
+
         CatalogFramework framework = givenCatalogFramework(SAMPLE_ID);
         String metacardXml = "<metacard ns2:id=\"assigned-when-ingested\">\r\n" +
                 "<type>type.metacard</type>\r\n" +
@@ -607,15 +612,7 @@ public class TestRestEndpoint {
         InputStream inputStream = new ByteArrayInputStream(metacardXml.getBytes(GET_OUTPUT_TYPE));
         when(content.getInputStream()).thenReturn(inputStream);
         when(content.getMimeTypeValue()).thenReturn("application/json;id=geojson");
-        when(framework.transform(isA(Metacard.class), anyString(), isNull(Map.class))).thenAnswer(
-                new Answer<BinaryContent>() {
-                    @Override
-                    public BinaryContent answer(InvocationOnMock invocation) throws Throwable {
-                        Object[] args = invocation.getArguments();
-                        Metacard metacard = (Metacard) args[0];
-                        return content;
-                    }
-                });
+        when(framework.transform(isA(Metacard.class), anyString(), isNull(Map.class))).thenReturn(content);
 
         RESTEndpoint restEndpoint = new RESTEndpoint(framework);
 
@@ -994,13 +991,6 @@ public class TestRestEndpoint {
         rest.setMimeTypeToTransformerMapper(matchingService);
 
         return matchingService;
-    }
-
-    private HttpServletRequest createServletRequest(String bytesToSkip) {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getHeader(HEADER_RANGE)).thenReturn("bytes=" + bytesToSkip + "-");
-
-        return request;
     }
 
     private HttpHeaders createHeaders(List<String> mimeTypeList) {

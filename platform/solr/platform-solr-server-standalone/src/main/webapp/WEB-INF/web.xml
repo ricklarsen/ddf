@@ -56,7 +56,7 @@
     -->
     <init-param>
       <param-name>excludePatterns</param-name>
-      <param-value>/css/.+,/js/.+,/img/.+,/tpl/.+</param-value>
+      <param-value>/libs/.+,/css/.+,/js/.+,/img/.+,/tpl/.+</param-value>
     </init-param>
   </filter>
 
@@ -174,5 +174,15 @@
     <param-name>org.eclipse.jetty.servlet.SessionPath</param-name>
     <param-value>/</param-value>
   </context-param>
+
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>Solr UI</web-resource-name>
+      <url-pattern>/*</url-pattern>
+    </web-resource-collection>
+    <user-data-constraint>
+      <transport-guarantee>CONFIDENTIAL</transport-guarantee>
+    </user-data-constraint>
+  </security-constraint>
 
 </web-app>

@@ -13,6 +13,7 @@
  **/
 package org.codice.ddf.registry.federationadmin.service.impl;
 
+import java.io.Serializable;
 import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -52,6 +53,7 @@ import ddf.catalog.operation.Query;
 import ddf.catalog.operation.SourceResponse;
 import ddf.catalog.operation.impl.QueryImpl;
 import ddf.catalog.operation.impl.QueryRequestImpl;
+import ddf.security.SecurityConstants;
 
 /**
  * Though refreshRegistrySubscriptions in this class is a public method, it should never be called by any
@@ -65,8 +67,6 @@ public class RefreshRegistryEntries {
     private static final int PAGE_SIZE = 1000;
 
     private static final int SHUTDOWN_TIMEOUT_SECONDS = 60;
-
-    private static final Security SECURITY = Security.getInstance();
 
     private List<RegistryStore> registryStores;
 
@@ -84,8 +84,14 @@ public class RefreshRegistryEntries {
 
     private Future scheduledTask;
 
-    public RefreshRegistryEntries() {
+    private Security security;
 
+    public RefreshRegistryEntries() {
+        this.security = Security.getInstance();
+    }
+
+    public RefreshRegistryEntries(Security security){
+        this.security = security;
     }
 
     public void init() {
@@ -116,66 +122,119 @@ public class RefreshRegistryEntries {
                 remoteResults.getRemoteRegistryMetacards();
         Map<String, Metacard> registryMetacardsMap = getRegistryMetacardsMap();
 
+        if (LOGGER.isDebugEnabled() && !remoteResults.getFailureList()
+                .isEmpty()) {
+            LOGGER.debug("Failed to query the following registry stores: {}",
+                    String.join(",", remoteResults.getFailureList()));
+        }
+
         List<Metacard> remoteMetacardsToUpdate = new ArrayList<>();
         List<Metacard> remoteMetacardsToCreate = new ArrayList<>();
         List<Metacard> remoteMetacardsToDelete = new ArrayList<>();
 
+        // Maps registry-id to a list of metacards that came from that registry
         Map<String, List<Metacard>> remoteRegistryToMetacardMap = getMetacardRegistryIdMap(
                 remoteRegistryMetacardsMap.values());
         Map<String, List<Metacard>> localRegistryToMetacardMap = getMetacardRegistryIdMap(
                 registryMetacardsMap.values());
 
+        // Loop through all the registry-ids of the stores queried and find any local internal
+        // representation metacards that need to be deleted
         for (String regId : remoteResults.getRegistryStoresQueried()) {
+            LOGGER.trace("Checking for registry entries from {} that need to be removed", regId);
+            // If we failed to query a store or we don't have any metacards from the store locally
+            // skip to the next store since we can't determine if we need to delete anything
             if (!localRegistryToMetacardMap.containsKey(regId) || remoteResults.getFailureList()
                     .contains(regId)) {
+                LOGGER.trace(
+                        "No local registry entries for {} or there was a failure querying the remote registry",
+                        regId);
                 continue;
             }
 
             if (remoteRegistryToMetacardMap.containsKey(regId)) {
+                // delete all metacards that are found locally that came from the given
+                // registry that no longer exist on the remote registry
                 remoteMetacardsToDelete.addAll(localRegistryToMetacardMap.get(regId)
                         .stream()
-                        .filter(e -> !hasMatch(e, remoteRegistryToMetacardMap.get(regId)))
+                        .filter(e -> shouldDelete(e, remoteRegistryToMetacardMap.get(regId)))
                         .collect(Collectors.toList()));
             } else {
-
+                //remote registry is returning no results so delete all local metacards from that registry
+                LOGGER.trace(
+                        "Remote registry {} returned 0 registry entries. Scheduling all local entries from this registry for removal.",
+                        regId);
                 remoteMetacardsToDelete.addAll(localRegistryToMetacardMap.get(regId));
             }
         }
 
+        // Loop through all the remote entries returned and determine if they need to be
+        // created or updated locally
         for (Map.Entry<String, Metacard> remoteEntry : remoteRegistryMetacardsMap.entrySet()) {
             if (registryMetacardsMap.containsKey(remoteEntry.getKey())) {
                 Metacard existingMetacard = registryMetacardsMap.get(remoteEntry.getKey());
-
+                // If it isn't a local node and it is newer that our current internal representation update it
                 if (!RegistryUtility.isLocalNode(existingMetacard) && remoteEntry.getValue()
                         .getModifiedDate()
                         .after(existingMetacard.getModifiedDate())) {
                     remoteMetacardsToUpdate.add(remoteEntry.getValue());
+                    LOGGER.trace("Scheduling update for {}:{}",
+                            remoteEntry.getValue()
+                                    .getTitle(),
+                            remoteEntry.getKey());
+                } else {
+                    LOGGER.trace(
+                            "No update scheduled for {}:{} because a newer version exists locally.",
+                            remoteEntry.getValue()
+                                    .getTitle(),
+                            remoteEntry.getKey());
                 }
             } else {
+                //add any metacards we don't currently have
                 remoteMetacardsToCreate.add(remoteEntry.getValue());
+                LOGGER.trace("Scheduling creation for {}:{}",
+                        remoteEntry.getValue()
+                                .getTitle(),
+                        remoteEntry.getKey());
             }
         }
 
         if (CollectionUtils.isNotEmpty(remoteMetacardsToUpdate)) {
+            LOGGER.debug("Registry subscriptions found {} registry entries that need to be updated",
+                    remoteMetacardsToUpdate.size());
+            logRegistryMetacards("Registry metacards to be updated", remoteMetacardsToUpdate);
             writeRemoteUpdates(remoteMetacardsToUpdate);
         }
         if (CollectionUtils.isNotEmpty(remoteMetacardsToCreate)) {
+            LOGGER.debug("Registry subscriptions found {} registry entries that need to be created",
+                    remoteMetacardsToCreate.size());
+            logRegistryMetacards("Registry metacards to be created", remoteMetacardsToCreate);
             createRemoteEntries(remoteMetacardsToCreate);
         }
         if (enableDelete && !remoteMetacardsToDelete.isEmpty()) {
+            LOGGER.debug("Registry subscriptions found {} registry entries that need to be deleted",
+                    remoteMetacardsToDelete.size());
+            logRegistryMetacards("Registry metacards to be deleted", remoteMetacardsToDelete);
             deleteRemoteEntries(remoteMetacardsToDelete);
         }
     }
 
-    private boolean hasMatch(Metacard local, List<Metacard> remoteMetacards) {
+    private boolean shouldDelete(Metacard local, List<Metacard> remoteMetacards) {
         String id = RegistryUtility.getStringAttribute(local,
                 RegistryObjectMetacardType.REMOTE_METACARD_ID,
                 "");
-        return remoteMetacards.stream()
+        boolean delete = !remoteMetacards.stream()
                 .filter(e -> e.getId()
                         .equals(id))
                 .findFirst()
                 .isPresent();
+        if (delete) {
+            LOGGER.trace("{}: {} is no longer available from {}. Scheduling it for deletion",
+                    local.getTitle(),
+                    RegistryUtility.getRegistryId(local),
+                    id);
+        }
+        return delete;
     }
 
     private boolean registriesAvailable() {
@@ -198,41 +257,60 @@ public class RefreshRegistryEntries {
         return map;
     }
 
+    /**
+     * @return a map of local registry metacards mapped by there remote metacard-id
+     * @throws FederationAdminException
+     */
     private Map<String, Metacard> getRegistryMetacardsMap() throws FederationAdminException {
         try {
             List<Metacard> registryMetacards =
-                    SECURITY.runAsAdminWithException(() -> federationAdminService.getInternalRegistryMetacards());
+                    security.runAsAdminWithException(() -> federationAdminService.getInternalRegistryMetacards());
 
             return registryMetacards.stream()
                     .collect(Collectors.toMap(e -> RegistryUtility.getStringAttribute(e,
                             RegistryObjectMetacardType.REMOTE_METACARD_ID,
                             null), Function.identity()));
         } catch (Exception e) {
-            throw new FederationAdminException("Error querying for metacards ", e);
+            throw new FederationAdminException("Error querying for internal registry metacards ", e);
         }
     }
 
+    /**
+     * Directly queries the stores without going through the catalog framework
+     */
     private RemoteRegistryResults getRemoteRegistryMetacardsMap() throws FederationAdminException {
         Map<String, Metacard> remoteRegistryMetacards = new HashMap<>();
         List<String> failedQueries = new ArrayList<>();
         List<String> storesQueried = new ArrayList<>();
         List<String> localMetacardRegIds = getLocalRegistryIds();
 
+        Map<String, Serializable> queryProps = new HashMap<>();
+        queryProps.put(SecurityConstants.SECURITY_SUBJECT, security.runAsAdmin(() -> security.getSystemSubject()));
+
+        LOGGER.debug("Querying {} remote registries", registryStores.size());
         //Create the remote query task to be run.
         List<Callable<RemoteResult>> tasks = new ArrayList<>();
         for (RegistryStore store : registryStores) {
             if (!store.isPullAllowed() || !store.isAvailable()) {
+                LOGGER.debug("Skipping store {} because pull is disabled or it is unavailable",
+                        store.getId());
                 continue;
             }
             storesQueried.add(store.getRegistryId());
             tasks.add(() -> {
                 SourceResponse response =
-                        store.query(new QueryRequestImpl(getBasicRegistryQuery()));
+                        store.query(new QueryRequestImpl(getBasicRegistryQuery(), queryProps));
                 Map<String, Metacard> results = response.getResults()
                         .stream()
                         .map(Result::getMetacard)
                         .filter(e -> !localMetacardRegIds.contains(RegistryUtility.getRegistryId(e)))
                         .collect(Collectors.toMap(Metacard::getId, Function.identity()));
+                LOGGER.debug("Retrieved {} registry entries from {} with {} local entries filtered.",
+                        results.size(),
+                        store.getId(),
+                        response.getResults()
+                                .size());
+                logRegistryMetacards("Filtered remote entries", results.values());
                 return new RemoteResult(store.getRegistryId(), results);
 
             });
@@ -257,9 +335,12 @@ public class RefreshRegistryEntries {
                 try {
                     results.add(future.get(taskWaitTimeSeconds, TimeUnit.SECONDS));
                 } catch (ExecutionException e) {
-                    LOGGER.debug("Error executing query on a remote registry.", e);
+                    LOGGER.warn(
+                            "Error executing query on a remote registry. Verify network connection to remote host is available. If connection is good, verify this instance has permission to access the registry.",
+                            e);
                 } catch (TimeoutException e) {
-                    LOGGER.debug("Timeout occurred when querying a remote registry");
+                    LOGGER.warn(
+                            "Timeout occurred when querying a remote registry. Verify network connection to remote host is available.");
                 }
             }
         } catch (InterruptedException e) {
@@ -271,7 +352,7 @@ public class RefreshRegistryEntries {
     private List<String> getLocalRegistryIds() throws FederationAdminException {
         try {
             List<Metacard> localMetacards =
-                    SECURITY.runAsAdminWithException(() -> federationAdminService.getLocalRegistryMetacards());
+                    security.runAsAdminWithException(() -> federationAdminService.getLocalRegistryMetacards());
             return localMetacards.stream()
                     .map(e -> RegistryUtility.getRegistryId(e))
                     .collect(Collectors.toList());
@@ -283,7 +364,7 @@ public class RefreshRegistryEntries {
     private void writeRemoteUpdates(List<Metacard> remoteMetacardsToUpdate)
             throws FederationAdminException {
         try {
-            SECURITY.runAsAdminWithException(() -> {
+            security.runAsAdminWithException(() -> {
                 for (Metacard m : remoteMetacardsToUpdate) {
                     federationAdminService.updateRegistryEntry(m);
                 }
@@ -299,7 +380,7 @@ public class RefreshRegistryEntries {
     private void createRemoteEntries(List<Metacard> remoteMetacardsToCreate)
             throws FederationAdminException {
         try {
-            SECURITY.runAsAdminWithException(() -> federationAdminService.addRegistryEntries(
+            security.runAsAdminWithException(() -> federationAdminService.addRegistryEntries(
                     remoteMetacardsToCreate,
                     null));
         } catch (PrivilegedActionException e) {
@@ -310,7 +391,7 @@ public class RefreshRegistryEntries {
     private void deleteRemoteEntries(List<Metacard> remoteMetacardsToDelete)
             throws FederationAdminException {
         try {
-            SECURITY.runAsAdminWithException(() -> {
+            security.runAsAdminWithException(() -> {
                 federationAdminService.deleteRegistryEntriesByMetacardIds(remoteMetacardsToDelete.stream()
                         .map(Metacard::getId)
                         .collect(Collectors.toList()));
@@ -388,6 +469,23 @@ public class RefreshRegistryEntries {
         }
     }
 
+    private void logRegistryMetacards(String message, Collection<Metacard> mcards) {
+        if (LOGGER.isDebugEnabled()) {
+            StringBuilder buffer = new StringBuilder();
+            buffer.append(System.lineSeparator());
+            for (Metacard mcard : mcards) {
+                buffer.append(String.format("%s: %s%s",
+                        mcard.getTitle(),
+                        RegistryUtility.getRegistryId(mcard),
+                        System.lineSeparator()));
+            }
+            LOGGER.debug("{}: {}", message, buffer.toString());
+        }
+    }
+
+    /**
+     * Container for results from a single remote registry
+     */
     static class RemoteResult {
 
         private String registryId;
@@ -403,12 +501,18 @@ public class RefreshRegistryEntries {
             return registryId;
         }
 
+        /**
+         * @return a map of remote registry metacards mapped by there metacard-id
+         */
         public Map<String, Metacard> getRemoteRegistryMetacards() {
             return remoteRegistryMetacards;
         }
 
     }
 
+    /**
+     * Container for all remote registry query results.
+     */
     private static class RemoteRegistryResults {
 
         private Map<String, Metacard> remoteRegistryMetacards;
@@ -424,6 +528,9 @@ public class RefreshRegistryEntries {
             this.registryStoresQueried = storesQueried;
         }
 
+        /**
+         * @return a map of remote registry metacards mapped by there metacard-id
+         */
         public Map<String, Metacard> getRemoteRegistryMetacards() {
             return new HashMap<>(remoteRegistryMetacards);
         }
@@ -432,6 +539,9 @@ public class RefreshRegistryEntries {
             return new ArrayList<>(registryStoresQueried);
         }
 
+        /**
+         * @return a list of stores that were queried but the query failed
+         */
         public List<String> getFailureList() {
             return new ArrayList<>(failureList);
         }

@@ -44,6 +44,7 @@ define([
             this.editorProperties.currentView.turnOnLimitedWidth();
             this.editorProperties.currentView.$el.addClass("is-list");
             this.getValidation();
+            EditorView.prototype.onBeforeShow.call(this);
         },
         getValidation: function(){
             if (!this.model.first().isRemote()){
@@ -55,10 +56,6 @@ define([
                 }).then(function(response){
                     if (!self.isDestroyed && self.editorProperties.currentView){
                         self.editorProperties.currentView.updateValidation(response);
-                    }
-                }).always(function(){
-                    if (!self.isDestroyed){
-
                     }
                 });
             }
@@ -83,13 +80,7 @@ define([
                        data: JSON.stringify(payload),
                        contentType: 'application/json'
                    }).then(function(response){
-                       var attributeMap = response.reduce(function(attributeMap, changes){
-                           return changes.attributes.reduce(function(attrMap, chnges){
-                               attrMap[chnges.attribute] = metacardDefinitions.metacardTypes[chnges.attribute].multivalued ? chnges.values : chnges.values[0];
-                               return attrMap;
-                           }, attributeMap);
-                       }, {});
-                       ResultUtils.updateResults(self.model, attributeMap);
+                       ResultUtils.updateResults(self.model, response);
                    }).always(function(){
                        setTimeout(function(){  //let solr flush
                           LoadingCompanionView.endLoading(self);

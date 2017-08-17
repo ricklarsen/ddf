@@ -40,8 +40,6 @@ In the event the system is unable to write to the `security.log` file, ${brandin
 * edit `<INSTALL_HOME>/etc/org.ops4j.pax.logging.cfg`
 ** uncomment the line (remove the `#` from the beginning of the line) for `log4j2` (`org.ops4j.pax.logging.log4j2.config.file = ${karaf.etc}/log4j2.config.xml`)
 ** delete all subsequent lines
-* edit `<INSTALL_HOME>/etc/startup.properties`
-** replace the artifact `pax-logging-service` with the artifact `pax-logging-log4j2` (keep same version and group)
 * edit `<INSTALL_HOME>/etc/log4j2.config.xml`
 ** find the entry for the `securityBackup` appender. (see example)
 ** change value of `filename` and prefix of `filePattern` to the name/path of the desired failover security logs (<NEW_FILE_NAME>)
@@ -61,3 +59,9 @@ In the event the system is unable to write to the `security.log` file, ${brandin
                      fileName="${sys:karaf.data}/log/<NEW_FILE_NAME>"
                      filePattern="${sys:karaf.data}/log/<NEW_FILE_NAME>-%d{yyyy-MM-dd-HH}-%i.log.gz">
 ----
+
+[WARNING]
+====
+If the system is unable to write to the `security.log` file on system startup, fallback logging will be unavailable.
+Verify that the `security.log` file is properly configured and contains logs before configuring a fall back.
+====

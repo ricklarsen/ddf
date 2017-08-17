@@ -14,29 +14,18 @@
 package org.codice.ddf.itests.common;
 
 import java.io.IOException;
-import java.util.Dictionary;
+import java.util.ArrayList;
 
-import org.apache.commons.lang.StringUtils;
+import javax.management.NotCompliantMBeanException;
+
+import org.apache.shiro.subject.Subject;
+import org.codice.ddf.admin.core.impl.AdminConsoleService;
+import org.codice.ddf.admin.core.impl.ConfigurationAdminImpl;
 import org.osgi.framework.InvalidSyntaxException;
 import org.osgi.service.cm.Configuration;
 import org.osgi.service.cm.ConfigurationAdmin;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class AdminConfig {
-    public static final String LOG_CONFIG_PID = "org.ops4j.pax.logging";
-
-    public static final String LOGGER_PREFIX = "log4j.logger.";
-
-    public static final String DEFAULT_LOG_LEVEL = "WARN";
-
-    public static final String TEST_LOGLEVEL_PROPERTY = "itestLogLevel";
-
-    public static final String TEST_SECURITYLOGLEVEL_PROPERTY = "securityLogLevel";
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(AdminConfig.class);
-
-    public static final int CONFIG_WAIT_POLLING_INTERVAL = 50;
 
     private final ConfigurationAdmin configAdmin;
 
@@ -44,8 +33,19 @@ public class AdminConfig {
         this.configAdmin = configAdmin;
     }
 
-    public org.codice.ddf.ui.admin.api.ConfigurationAdmin getDdfConfigAdmin() {
-        return new org.codice.ddf.ui.admin.api.ConfigurationAdmin(configAdmin) {
+    public AdminConsoleService getAdminConsoleService() throws NotCompliantMBeanException {
+        return new AdminConsoleService(configAdmin,
+                new ConfigurationAdminImpl(configAdmin, new ArrayList<>()) {
+                    @Override
+                    public boolean isPermittedToViewService(String servicePid) {
+                        return true;
+                    }
+
+                    @Override
+                    public boolean isPermittedToViewService(String servicePid, Subject subject) {
+                        return true;
+                    }
+                }) {
             @Override
             public boolean isPermittedToViewService(String servicePid) {
                 return true;
@@ -71,26 +71,5 @@ public class AdminConfig {
 
     public Configuration[] listConfigurations(String s) throws IOException, InvalidSyntaxException {
         return configAdmin.listConfigurations(s);
-    }
-
-    public void setLogLevels() throws IOException {
-        String logLevel = System.getProperty(TEST_LOGLEVEL_PROPERTY);
-        String securityLogLevel = System.getProperty(TEST_SECURITYLOGLEVEL_PROPERTY);
-
-        Configuration logConfig = configAdmin.getConfiguration(LOG_CONFIG_PID, null);
-        Dictionary<String, Object> properties = logConfig.getProperties();
-
-        properties.put(LOGGER_PREFIX + "*", DEFAULT_LOG_LEVEL);
-
-        if (!StringUtils.isEmpty(logLevel)) {
-            properties.put(LOGGER_PREFIX + "ddf", logLevel);
-            properties.put(LOGGER_PREFIX + "org.codice", logLevel);
-            if (StringUtils.isEmpty(securityLogLevel)) {
-                properties.put(LOGGER_PREFIX + "ddf.security.expansion.impl.RegexExpansion", logLevel);
-                properties.put(LOGGER_PREFIX + "ddf.security.service.impl.AbstractAuthorizingRealm", logLevel);
-            }
-        }
-
-        logConfig.update(properties);
     }
 }

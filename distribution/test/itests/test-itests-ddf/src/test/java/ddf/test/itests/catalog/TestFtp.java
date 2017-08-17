@@ -14,9 +14,9 @@
 package ddf.test.itests.catalog;
 
 import static org.codice.ddf.itests.common.WaitCondition.expect;
+import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.getOpenSearch;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static com.jayway.restassured.RestAssured.when;
 import static ddf.catalog.ftp.FtpServerStarter.CLIENT_AUTH;
 import static ddf.catalog.ftp.FtpServerStarter.NEED;
 import static ddf.catalog.ftp.FtpServerStarter.WANT;
@@ -33,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLException;
-import javax.xml.xpath.XPathExpressionException;
 
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
@@ -53,7 +52,6 @@ import org.ops4j.pax.exam.spi.reactors.ExamReactorStrategy;
 import org.ops4j.pax.exam.spi.reactors.PerSuite;
 import org.osgi.service.cm.Configuration;
 
-import com.jayway.restassured.path.xml.XmlPath;
 import com.jayway.restassured.response.Response;
 
 /**
@@ -79,7 +77,7 @@ public class TestFtp extends AbstractIntegrationTest {
 
     private static final String SAMPLE_DATA_TITLE = "test.bin";
 
-    private static final String METACARD_TITLE = "Metacard-1.bin";
+    private static final String METACARD_TITLE = "Metacard-1";
 
     private static final String METACARD_FILE = "metacard1.xml";
 
@@ -384,22 +382,6 @@ public class TestFtp extends AbstractIntegrationTest {
         }
     }
 
-    private Response executeOpenSearch(String format, String... query) {
-        StringBuilder buffer = new StringBuilder(OPENSEARCH_PATH.getUrl()).append("?")
-                .append("format=")
-                .append(format);
-
-        for (String term : query) {
-            buffer.append("&")
-                    .append(term);
-        }
-
-        String url = buffer.toString();
-        LOGGER.info("Getting response to {}", url);
-
-        return when().get(url);
-    }
-
     private void ftpPut(FTPClient client, String data, String fileTitle) throws IOException {
         LOGGER.info("Start data upload via FTP PUT...");
 
@@ -442,13 +424,6 @@ public class TestFtp extends AbstractIntegrationTest {
         } else {
             LOGGER.error("Failed to upload file.");
         }
-    }
-
-    private String getMetacardIdFromResponse(Response response)
-            throws IOException, XPathExpressionException {
-        return XmlPath.given(response.asString())
-                // gpath to get the single ingested element ID
-                .get("metacards.metacard[0].@gml:id");
     }
 
     private void showServerReply(FTPClient ftpClient) {
@@ -534,7 +509,12 @@ public class TestFtp extends AbstractIntegrationTest {
                 expectedResults,
                 expectedTitle)).within(VERIFY_INGEST_TIMEOUT_SEC, TimeUnit.SECONDS)
                 .until(() -> {
-                    final Response response = executeOpenSearch("xml", "q=*", "count=100");
+                    final Response response = getOpenSearch("xml",
+                            null,
+                            null,
+                            "q=*",
+                            "count=100").extract()
+                            .response();
 
                     int numOfResults = response.xmlPath()
                             .getList("metacards.metacard")

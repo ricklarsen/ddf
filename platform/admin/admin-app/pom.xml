@@ -99,6 +99,11 @@
         </dependency>
         <dependency>
             <groupId>ddf.admin.core</groupId>
+            <artifactId>admin-core-impl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin.core</groupId>
             <artifactId>admin-core-jolokia</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -170,6 +175,31 @@
         <dependency>
             <groupId>ddf.admin.modules</groupId>
             <artifactId>admin-docs-ui</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin</groupId>
+            <artifactId>admin-configurator-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin</groupId>
+            <artifactId>admin-configurator-actions-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin</groupId>
+            <artifactId>admin-configurator-impl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin</groupId>
+            <artifactId>admin-configuration-passwordencryption</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.admin</groupId>
+            <artifactId>admin-configuration-configinstaller</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

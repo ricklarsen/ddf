@@ -21,6 +21,7 @@ import ddf.catalog.data.types.Core
 import ddf.catalog.data.types.Location
 import ddf.catalog.operation.CreateRequest
 import ddf.catalog.operation.UpdateRequest
+import ddf.catalog.plugin.PluginExecutionException
 import ddf.catalog.util.impl.ServiceSelector
 import org.codice.ddf.spatial.geocoder.GeoCoder
 import spock.lang.Specification
@@ -35,6 +36,8 @@ class GeoCoderPluginTest extends Specification {
     private static Optional<String> countryCode = Optional.of('NO')
 
     private static String locationWKT = 'POINT(10.402439 63.418399)'
+
+    private static String invalidLocationWkt = 'POINT(350.0 350.0)'
 
     private CreateRequest createRequest
 
@@ -202,7 +205,7 @@ class GeoCoderPluginTest extends Specification {
     def 'test update configuration'() {
         setup:
         def map = new HashMap<String, Object>()
-        map.put("radiusInKm", 15)
+        map.put(GeoCoderPlugin.RADIUS_IN_KM, 15)
 
         geoCoderPlugin = initGeoCoderPlugin(countryCode, false);
 
@@ -212,9 +215,63 @@ class GeoCoderPluginTest extends Specification {
         geoCoderPlugin.getRadius() == 15
     }
 
+    def 'test update with null configuration'() {
+        setup:
+        def map = new HashMap<String, Object>()
+
+        when: "geocoderplugin is provided a null configuration"
+        map.put(GeoCoderPlugin.RADIUS_IN_KM, 15)
+
+        geoCoderPlugin = initGeoCoderPlugin(countryCode, false);
+
+        geoCoderPlugin.updateConfiguration(map)
+        geoCoderPlugin.updateConfiguration(null)
+
+        then: "the null configuration is ignored"
+        geoCoderPlugin.getRadius() == 15
+    }
+
+    def 'test invalid geo location Metacard CreateRequest'() {
+        setup:
+        GeoCoderPlugin errorGeoCoderPlugin = initErrorGeoCoderPlugin(countryCode, false);
+        createRequest.getMetacards() >> getTestMetacards(new AttributeImpl(Core.LOCATION, invalidLocationWkt))
+
+        when:
+        errorGeoCoderPlugin.process(createRequest)
+
+        then:
+        thrown(PluginExecutionException)
+    }
+
+    def 'test invalid geo location Metacard UpdateRequest'() {
+        setup:
+        GeoCoderPlugin errorGeoCoderPlugin = initErrorGeoCoderPlugin(countryCode, false);
+        updateRequest.getUpdates() >> getTestUpdates(new AttributeImpl(Core.LOCATION, invalidLocationWkt))
+
+        when:
+        errorGeoCoderPlugin.process(updateRequest)
+
+        then:
+        thrown(PluginExecutionException)
+    }
+
     def initGeoCoderPlugin(Optional<String> countryCode, boolean overrideDefaultGeocoder) {
         GeoCoder geocoder = (overrideDefaultGeocoder == true) ? null : Mock(GeoCoder) {
             getCountryCode(_ as String, _ as Integer) >> countryCode
+        }
+
+        geocoderFactory = Mock(ServiceSelector) {
+            getService() >> geocoder
+        }
+
+        return new GeoCoderPlugin(geocoderFactory)
+    }
+
+    def initErrorGeoCoderPlugin(Optional<String> countryCode, boolean overrideDefaultGeocoder) {
+        GeoCoder geocoder = (overrideDefaultGeocoder == true) ? null : Mock(GeoCoder) {
+            getCountryCode(_ as String, _ as Integer) >> {
+                _ -> throw new PluginExecutionException("Invalid Location")
+            }
         }
 
         geocoderFactory = Mock(ServiceSelector) {

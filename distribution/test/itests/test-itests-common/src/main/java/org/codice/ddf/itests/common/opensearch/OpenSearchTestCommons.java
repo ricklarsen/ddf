@@ -13,10 +13,20 @@
  */
 package org.codice.ddf.itests.common.opensearch;
 
+import static com.jayway.restassured.RestAssured.given;
+import static com.jayway.restassured.RestAssured.when;
+
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.commons.lang.StringUtils;
+import org.codice.ddf.itests.common.AbstractIntegrationTest;
 import org.codice.ddf.itests.common.ServiceManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.jayway.restassured.response.ValidatableResponse;
 
 public class OpenSearchTestCommons {
 
@@ -24,11 +34,53 @@ public class OpenSearchTestCommons {
 
     public static final String OPENSEARCH_FACTORY_PID = "OpenSearchSource";
 
-    public static Map<String, Object> getOpenSearchSourceProperties(String sourceId, String openSearchUrl, ServiceManager serviceManager) {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AbstractIntegrationTest.class);
+
+    public static Map<String, Object> getOpenSearchSourceProperties(String sourceId,
+            String openSearchUrl, ServiceManager serviceManager) {
         Map<String, Object> openSearchSourcePropertes = new HashMap<>();
-        openSearchSourcePropertes.putAll(serviceManager.getMetatypeDefaults(OPENSEARCH_SYMBOLIC_NAME, OPENSEARCH_FACTORY_PID));
+        openSearchSourcePropertes.putAll(serviceManager.getMetatypeDefaults(OPENSEARCH_SYMBOLIC_NAME,
+                OPENSEARCH_FACTORY_PID));
         openSearchSourcePropertes.put("shortname", sourceId);
         openSearchSourcePropertes.put("endpointUrl", openSearchUrl);
         return openSearchSourcePropertes;
+    }
+
+    /**
+     * Gets the validatable response of the open search query
+     * When admin is set to true, there is additional authentication specifications
+     * for setting up as an admin
+     *
+     * @return Returns the ValidatableResponse object that will be used for validation
+     * @params format       The search format to be used. Default is atom.
+     * @params username     The username is used for authentication
+     * @params password     The password is used for authentication
+     * @params queryParams  Input search query parameters to create an OpenSearch query
+     */
+    public static ValidatableResponse getOpenSearch(String format, String username, String password,
+            String... queryParams) {
+        StringBuilder buffer =
+                new StringBuilder(AbstractIntegrationTest.OPENSEARCH_PATH.getUrl()).append("?")
+                        .append("format=")
+                        .append(format);
+
+        Arrays.stream(queryParams)
+                .forEach(term -> buffer.append("&")
+                        .append(term));
+
+        String url = buffer.toString();
+        LOGGER.debug("Getting Open Search response to {}", url);
+
+        if (StringUtils.isBlank(username) && StringUtils.isBlank(password)) {
+            return when().get(url)
+                    .then();
+        } else {
+            return given().auth()
+                    .preemptive()
+                    .basic(username, password)
+                    .when()
+                    .get(url)
+                    .then();
+        }
     }
 }

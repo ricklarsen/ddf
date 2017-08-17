@@ -12,7 +12,7 @@
  *
  **/
 -->
-<Configuration status="WARN">
+<Configuration status="FATAL">
     <Properties>
         <Property name="log-pattern">%-5.5p | %-16.16t | %-32.32c{1} | %-32.32C %4L | %X{bundle.id}
             - %X{bundle.name} - %X{bundle.version} | %m%n
@@ -23,7 +23,10 @@
         <PaxOsgi name="osgi-platformLogging"
                  filter="org.codice.ddf.platform.logging.LoggingService"/>
 
-        <PaxOsgi name="osgi-all" filter="*"/>
+        <PaxOsgi name="osgi-adminAlertAppender"
+                 filter="ddf.security.common.audit.LogFailoverAlertAppender"/>
+
+        <PaxOsgi name="osgi-karafConsole" filter="VmLogAppender"/>
 
         <Syslog name="syslog" facility="AUTH" host="localhost" protocol="UDP" port="514"/>
 
@@ -31,11 +34,12 @@
             <PatternLayout pattern="%d{ABSOLUTE} | ${log-pattern}"/>
         </Console>
 
-        <RollingFile name="out" fileName="${sys:karaf.data}/log/ddf.log"
+        <RollingFile name="out" append="true"
+                     fileName="${sys:karaf.data}/log/ddf.log"
                      filePattern="${sys:karaf.data}/log/ddf.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="%d{ISO8601} | ${log-pattern}"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -45,7 +49,7 @@
                      filePattern="${sys:karaf.data}/log/ingest_error.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="%d{ABSOLUTE} | ${log-pattern}"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -55,17 +59,18 @@
                      filePattern="${sys:karaf.data}/log/security.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="[%-5p] %d{ISO8601} | %-16.16t | %-15.20c{1} |  %m%n"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
 
+        <!-- It is recommended to change the default directory of this log file -->
         <RollingFile name="securityBackup" append="true" ignoreExceptions="false"
                      fileName="${sys:karaf.data}/log/securityBackup.log"
                      filePattern="${sys:karaf.data}/log/securityBackup.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="[%-5p] %d{ISO8601} | %-16.16t | %-15.20c{1} |  %m%n"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -73,6 +78,7 @@
         <Failover name="securityFailover" primary="securityMain">
             <Failovers>
                 <AppenderRef ref="securityBackup"/>
+                <AppenderRef ref="osgi-adminAlertAppender"/>
             </Failovers>
         </Failover>
 
@@ -81,7 +87,7 @@
                      filePattern="${sys:karaf.data}/log/solr.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="%d{ABSOLUTE} | ${log-pattern}"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -91,7 +97,7 @@
                      filePattern="${sys:karaf.data}/log/artemis.log-%d{yyyy-MM-dd-HH}-%i.log.gz">
             <PatternLayout pattern="%d{ABSOLUTE} | ${log-pattern}"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="200 MB"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -144,7 +150,8 @@
 
         <Root level="info">
             <AppenderRef ref="out"/>
-            <AppenderRef ref="osgi-all"/>
+            <AppenderRef ref="osgi-karafConsole"/>
+            <AppenderRef ref="osgi-platformLogging"/>
         </Root>
     </Loggers>
 </Configuration>

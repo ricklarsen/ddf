@@ -59,7 +59,7 @@ public class AmqpProducerConsumerExample extends RouteBuilder {
         createCamelContext();
         CamelContext camelContext = getContext();
         from("timer:simple").process(new Processor() {
-            private volatile int count;
+            private int count;
 
             @Override
             public void process(Exchange exchange) {
@@ -70,9 +70,9 @@ public class AmqpProducerConsumerExample extends RouteBuilder {
                 System.out.println(count + " PING");
             }
         })
-                .to("amqp:jms.queue.sdk.example");
+                .to("amqp:sdk.example");
 
-        from("amqp:topic:jms.topic.sdk.example").process(exchange -> System.out.println(
+        from("amqp:topic:sdk.example").process(exchange -> System.out.println(
                 "ACK " + exchange.getIn()
                         .getBody()))
                 .stop();

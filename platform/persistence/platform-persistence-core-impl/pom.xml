@@ -129,6 +129,11 @@
             <artifactId>solr-xpath</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+            <version>${commons-collections4.version}</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -140,6 +145,7 @@
                         <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
                         <Embed-Dependency>
                             commons-codec,
+                            commons-collections4,
                             gt-cql,
                             solr-factory,
                             solr-query,
@@ -183,7 +189,6 @@
                             javax.xml.transform.sax,
                             javax.xml.transform.stream,
                             javax.xml.xpath,
-                            jline,
                             org.apache.commons.logging,
                             org.codice.ddf.persistence;version=1.0.0-SNAPSHOT,
                             org.geotools.factory,
@@ -211,7 +216,8 @@
                             org.w3c.dom,
                             org.xml.sax,
                             org.xml.sax.ext,
-                            org.xml.sax.helpers
+                            org.xml.sax.helpers,
+                            !jline
                         </Import-Package>
                     </instructions>
                 </configuration>
@@ -234,17 +240,17 @@
                                         <limit>
                                             <counter>INSTRUCTION</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0</minimum>
+                                            <minimum>0.42</minimum>
                                         </limit>
                                         <limit>
                                             <counter>BRANCH</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0</minimum>
+                                            <minimum>0.52</minimum>
                                         </limit>
                                         <limit>
                                             <counter>COMPLEXITY</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0</minimum>
+                                            <minimum>0.45</minimum>
                                         </limit>
 
                                     </limits>

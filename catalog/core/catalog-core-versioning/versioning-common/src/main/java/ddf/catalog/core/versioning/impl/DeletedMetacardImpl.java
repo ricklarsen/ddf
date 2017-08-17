@@ -14,11 +14,10 @@
 package ddf.catalog.core.versioning.impl;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -37,8 +36,6 @@ import ddf.catalog.data.impl.MetacardTypeImpl;
  * Represents a currently soft deleted metacard.
  */
 public class DeletedMetacardImpl extends MetacardImpl implements DeletedMetacard {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DeletedMetacardImpl.class);
-
     private static final MetacardType METACARD_TYPE;
 
     private static final Set<AttributeDescriptor> DESCRIPTORS =
@@ -51,7 +48,6 @@ public class DeletedMetacardImpl extends MetacardImpl implements DeletedMetacard
                 false,
                 false,
                 BasicTypes.STRING_TYPE));
-
         DESCRIPTORS.add(new AttributeDescriptorImpl(DELETION_OF_ID,
                 true,
                 true,
@@ -67,33 +63,30 @@ public class DeletedMetacardImpl extends MetacardImpl implements DeletedMetacard
         METACARD_TYPE = new MetacardTypeImpl(PREFIX, DESCRIPTORS);
     }
 
-    public DeletedMetacardImpl(String deletionOfId, String deletedBy, String lastVersionId,
-            Metacard metacardBeingDeleted) {
+    public DeletedMetacardImpl(String id, String deletionOfId, String deletedBy,
+            String lastVersionId, Metacard metacardBeingDeleted) {
         super(metacardBeingDeleted,
                 new MetacardTypeImpl(PREFIX,
-                        getDeletedMetacardType(),
-                        metacardBeingDeleted.getMetacardType()
-                                .getAttributeDescriptors()));
+                    getDeletedMetacardType(),
+                    metacardBeingDeleted.getMetacardType()
+                        .getAttributeDescriptors()));
         this.setDeletionOfId(deletionOfId);
         this.setDeletedBy(deletedBy);
         this.setLastVersionId(lastVersionId);
         this.setTags(ImmutableSet.of(DELETED_TAG));
-
-        if (this.getId() == null || "".equals(this.getId())) {
-            this.setId(UUID.randomUUID()
-                    .toString()
-                    .replace("-", ""));
-        }
+        this.setId(id);
     }
 
-    public static boolean isNotDeleted(Metacard metacard) {
+    public static boolean isNotDeleted(@Nullable Metacard metacard) {
         return !isDeleted(metacard);
     }
 
-    public static boolean isDeleted(Metacard metacard) {
+    public static boolean isDeleted(@Nullable Metacard metacard) {
         return metacard instanceof DeletedMetacard || getDeletedMetacardType().getName()
-                .equals(metacard.getMetacardType()
-                        .getName());
+                .equals(Optional.ofNullable(metacard)
+                        .map(Metacard::getMetacardType)
+                        .map(MetacardType::getName)
+                        .orElse(null));
     }
 
     public static MetacardType getDeletedMetacardType() {

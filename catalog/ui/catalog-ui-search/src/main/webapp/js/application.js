@@ -26,9 +26,7 @@ define([
     'backboneassociations',
     'modelbinder',
     'collectionbinder',
-    'datepicker',
-    'multiselect',
-    'multiselectfilter'
+    'multiselect'
 ], function ($, _, Marionette, Backbone, properties, maptype, header, footer) {
     var Application = {};
     Application.App = new Marionette.Application();
@@ -76,7 +74,7 @@ define([
         }
     });
 
-    Application.App.loadingRegion.$el.find('.welcome-branding').html(properties.branding);
+    Application.App.loadingRegion.$el.find('.welcome-branding').text(properties.branding);
     Application.App.loadingRegion.$el.addClass('show-welcome');
 
     //load all modules

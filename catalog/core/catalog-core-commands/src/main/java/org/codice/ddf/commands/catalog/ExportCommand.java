@@ -15,6 +15,7 @@ package org.codice.ddf.commands.catalog;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
@@ -24,7 +25,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,12 +32,12 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.karaf.shell.api.action.Command;
@@ -48,11 +48,9 @@ import org.codice.ddf.catalog.transformer.zip.JarSigner;
 import org.codice.ddf.commands.catalog.export.ExportItem;
 import org.codice.ddf.commands.catalog.export.IdAndUriMetacard;
 import org.codice.ddf.commands.util.CatalogCommandRuntimeException;
-import org.codice.ddf.commands.util.QueryResultIterable;
 import org.fusesource.jansi.Ansi;
 import org.geotools.filter.text.cql2.CQLException;
 import org.opengis.filter.Filter;
-import org.opengis.filter.sort.SortBy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,9 +58,12 @@ import ddf.catalog.content.StorageException;
 import ddf.catalog.content.StorageProvider;
 import ddf.catalog.content.data.ContentItem;
 import ddf.catalog.content.operation.impl.DeleteStorageRequestImpl;
+import ddf.catalog.core.versioning.DeletedMetacard;
+import ddf.catalog.core.versioning.MetacardVersion;
 import ddf.catalog.data.BinaryContent;
 import ddf.catalog.data.Metacard;
 import ddf.catalog.data.Result;
+import ddf.catalog.operation.QueryRequest;
 import ddf.catalog.operation.ResourceResponse;
 import ddf.catalog.operation.impl.DeleteRequestImpl;
 import ddf.catalog.operation.impl.QueryImpl;
@@ -73,6 +74,7 @@ import ddf.catalog.resource.ResourceNotSupportedException;
 import ddf.catalog.source.IngestException;
 import ddf.catalog.transform.CatalogTransformerException;
 import ddf.catalog.transform.MetacardTransformer;
+import ddf.catalog.util.impl.ResultIterable;
 import ddf.security.common.audit.SecurityLogger;
 import net.lingala.zip4j.core.ZipFile;
 import net.lingala.zip4j.exception.ZipException;
@@ -108,15 +110,14 @@ public class ExportCommand extends CqlCommands {
     private JarSigner jarSigner = new JarSigner();
 
     @Reference
-    private StorageProvider storageProvider;
+    protected StorageProvider storageProvider;
 
     @Option(name = "--output", description = "Output file to export Metacards and contents into. Paths are absolute and must be in quotes. Will default to auto generated name inside of ddf.home", multiValued = false, required = false, aliases = {
             "-o"})
     String output = Paths.get(System.getProperty("ddf.home"), FILE_NAMER.get())
             .toString();
 
-    @Option(name = "--delete", required = true, aliases = {
-            "-d"}, multiValued = false, description = "Delete Metacards and content after export. EG: --delete=true or --delete=false")
+    @Option(name = "--delete", required = true, multiValued = false, description = "Delete Metacards and content after export. E.g., --delete=true or --delete=false")
     boolean delete = false;
 
     @Option(name = "--archived", required = false, aliases = {"-a",
@@ -136,27 +137,27 @@ public class ExportCommand extends CqlCommands {
         transformer = getServiceByFilter(MetacardTransformer.class,
                 String.format("(%s=%s)",
                         "id",
-                        DEFAULT_TRANSFORMER_ID)).orElseThrow(() -> new CatalogCommandRuntimeException(
+                        DEFAULT_TRANSFORMER_ID)).orElseThrow(() -> new IllegalArgumentException(
                 "Could not get " + DEFAULT_TRANSFORMER_ID + " transformer"));
         revisionFilter = initRevisionFilter();
 
         final File outputFile = initOutputFile(output);
         if (outputFile.exists()) {
             printErrorMessage(String.format("File [%s] already exists!", outputFile.getPath()));
-            return null;
+            throw new IllegalStateException("File already exists");
         }
 
         final File parentDirectory = outputFile.getParentFile();
         if (parentDirectory == null || !parentDirectory.isDirectory()) {
             printErrorMessage(String.format("Directory [%s] must exist.", output));
             console.println("If the directory does indeed exist, try putting the path in quotes.");
-            return null;
+            throw new IllegalStateException("Must be inside of a directory");
         }
 
         String filename = FilenameUtils.getName(outputFile.getPath());
         if (StringUtils.isBlank(filename) || !filename.endsWith(".zip")) {
             console.println("Filename must end with '.zip' and not be blank");
-            return null;
+            throw new IllegalStateException("Filename must not be blank and must end with '.zip'");
         }
 
         if (delete && !force) {
@@ -176,8 +177,13 @@ public class ExportCommand extends CqlCommands {
         console.println("Starting metacard export...");
         Instant start = Instant.now();
         List<ExportItem> exportedItems = doMetacardExport(zipFile, filter);
-        console.println("Metacards exported in: " + getFormattedDuration(start));
+        if (exportedItems.isEmpty()) {
+            console.println("No metacards found to export, exiting.");
+            FileUtils.deleteQuietly(zipFile.getFile());
+            return null;
+        }
 
+        console.println("Metacards exported in: " + getFormattedDuration(start));
         console.println("Number of metacards exported: " + exportedItems.size());
         console.println();
 
@@ -197,6 +203,7 @@ public class ExportCommand extends CqlCommands {
 
         if (delete) {
             doDelete(exportedItems, exportedContentItems);
+
         }
 
         if (!unsafe) {
@@ -212,6 +219,7 @@ public class ExportCommand extends CqlCommands {
                     System.getProperty("javax.net.ssl.keyStorePassword"));
             console.println("zip file signed in: " + getFormattedDuration(start));
         }
+
         console.println("Export complete.");
         console.println("Exported to: " + zipFile.getFile()
                 .getCanonicalPath());
@@ -235,9 +243,13 @@ public class ExportCommand extends CqlCommands {
     private List<ExportItem> doMetacardExport(/*Mutable,IO*/ZipFile zipFile, Filter filter) {
         Set<String> seenIds = new HashSet<>(1024);
         List<ExportItem> exportedItems = new ArrayList<>();
-        for (Result result : new QueryResultIterable(catalogFramework,
-                (i) -> getQuery(filter, i, PAGE_SIZE),
-                PAGE_SIZE)) {
+
+        QueryImpl query = new QueryImpl(filter);
+        QueryRequest queryRequest = new QueryRequestImpl(query);
+
+        query.setPageSize(PAGE_SIZE);
+
+        for (Result result : new ResultIterable(catalogFramework, queryRequest)) {
             if (!seenIds.contains(result.getMetacard()
                     .getId())) {
                 writeToZip(zipFile, result);
@@ -252,9 +264,12 @@ public class ExportCommand extends CqlCommands {
             }
 
             // Fetch and export all history for each exported item
-            for (Result revision : new QueryResultIterable(catalogFramework,
-                    (i) -> getQuery(getHistoryFilter(result), i, PAGE_SIZE),
-                    PAGE_SIZE)) {
+            QueryImpl historyQuery = new QueryImpl(getHistoryFilter(result));
+            QueryRequest historyQueryRequest = new QueryRequestImpl(historyQuery);
+
+            historyQuery.setPageSize(PAGE_SIZE);
+
+            for (Result revision : new ResultIterable(catalogFramework, historyQueryRequest)) {
                 if (seenIds.contains(revision.getMetacard()
                         .getId())) {
                     continue;
@@ -294,6 +309,8 @@ public class ExportCommand extends CqlCommands {
                 // Only things with a resource URI
                 .filter(ei -> ei.getResourceUri() != null)
                 // Only our content scheme
+                .filter(ei -> ei.getResourceUri()
+                        .getScheme() != null)
                 .filter(ei -> ei.getResourceUri()
                         .getScheme()
                         .startsWith(ContentItem.CONTENT_SCHEME))
@@ -381,6 +398,7 @@ public class ExportCommand extends CqlCommands {
                 printErrorMessage(
                         "Could not delete content for metacard: " + exportedContentItem.toString());
             }
+
         }
         for (ExportItem exported : exportedItems) {
             try {
@@ -388,6 +406,18 @@ public class ExportCommand extends CqlCommands {
             } catch (IngestException e) {
                 printErrorMessage("Could not delete metacard: " + exported.toString());
             }
+        }
+
+        // delete items from cache
+        try {
+            getCacheProxy().removeById(exportedItems.stream()
+                    .map(ExportItem::getId)
+                    .collect(Collectors.toList())
+                    .toArray(new String[exportedItems.size()]));
+        } catch (Exception e) {
+            LOGGER.warn(
+                    "Could not delete all exported items from cache (Results will eventually expire)",
+                    e);
         }
 
         console.println("Metacards and Content deleted in: " + getFormattedDuration(start));
@@ -402,8 +432,23 @@ public class ExportCommand extends CqlCommands {
         String id = exportItem.getId();
         String path = getContentPath(id, resource);
         parameters.setFileNameInZip(path);
-        zipFile.addStream(resource.getResource()
-                .getInputStream(), parameters);
+        try (InputStream resourceStream = resource.getResource()
+                .getInputStream()) {
+            zipFile.addStream(resourceStream, parameters);
+        } catch (IOException e) {
+            LOGGER.warn("Could not get content. Content will not be included in export [{}]",
+                    exportItem.getId());
+            console.printf(
+                    "%sCould not get Content. Content will not be included in export. %s (%s)%s%n",
+                    Ansi.ansi()
+                            .fg(Ansi.Color.RED)
+                            .toString(),
+                    exportItem.getId(),
+                    exportItem.getResourceUri(),
+                    Ansi.ansi()
+                            .reset()
+                            .toString());
+        }
     }
 
     private String getContentPath(String id, ResourceResponse resource) {
@@ -444,11 +489,13 @@ public class ExportCommand extends CqlCommands {
         try {
             BinaryContent binaryMetacard = transformer.transform(result.getMetacard(),
                     Collections.emptyMap());
-            zipFile.addStream(binaryMetacard.getInputStream(), parameters);
+            try (InputStream metacard = binaryMetacard.getInputStream()) {
+                zipFile.addStream(metacard, parameters);
+            }
         } catch (ZipException e) {
             LOGGER.error("Error processing result and adding to ZIP", e);
             throw new CatalogCommandRuntimeException(e);
-        } catch (CatalogTransformerException e) {
+        } catch (CatalogTransformerException | IOException e) {
             LOGGER.warn("Could not transform metacard. Metacard will not be added to zip [{}]",
                     result.getMetacard()
                             .getId());
@@ -503,12 +550,12 @@ public class ExportCommand extends CqlCommands {
                 .getMetacardType()
                 .getName();
         switch (typeName) {
-        case "deleted":
+        case DeletedMetacard.PREFIX:
             id = String.valueOf(result.getMetacard()
                     .getAttribute("metacard.deleted.id")
                     .getValue());
             break;
-        case "revision":
+        case MetacardVersion.PREFIX:
             return null;
         default:
             id = result.getMetacard()
@@ -535,14 +582,4 @@ public class ExportCommand extends CqlCommands {
         }
         return filter;
     }
-
-    private QueryRequestImpl getQuery(Filter filter, int index, int pageSize) {
-        return new QueryRequestImpl(new QueryImpl(filter,
-                index,
-                pageSize,
-                SortBy.NATURAL_ORDER,
-                false,
-                TimeUnit.MINUTES.toMillis(1)), new HashMap<>());
-    }
-
 }

@@ -24,6 +24,7 @@
     <packaging>pom</packaging>
     <name>DDF SDK</name>
     <modules>
+        <module>artemis-sandbox</module>
         <module>sample-plugins</module>
         <module>sample-transformers</module>
         <module>ddf-sso-widget</module>
@@ -86,6 +87,13 @@
                             </configuration>
                         </execution>
                     </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.owasp</groupId>
+                    <artifactId>dependency-check-maven</artifactId>
+                    <configuration>
+                        <skip>true</skip>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>

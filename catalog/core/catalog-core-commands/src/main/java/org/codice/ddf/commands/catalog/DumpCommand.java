@@ -61,6 +61,7 @@ import ddf.catalog.transform.MetacardTransformer;
 import ddf.catalog.transform.QueryResponseTransformer;
 import ddf.security.common.audit.SecurityLogger;
 
+//TODO DDF-3116 The catalog:dump shuts down DDF when it fails to transform
 @Service
 @Command(scope = CatalogCommands.NAMESPACE, name = "dump", description = "Exports Metacards from the current Catalog. Does not remove them.")
 public class DumpCommand extends CqlCommands {
@@ -214,12 +215,11 @@ public class DumpCommand extends CqlCommands {
                         Metacard metacard = result.getMetacard();
                         try {
                             exportMetacard(dumpDir, metacard);
+                            printStatus(resultCount.incrementAndGet());
                         } catch (IOException | CatalogTransformerException e) {
                             transformationFailed = true;
                             LOGGER.debug("Failed to dump metacard {}", metacard.getId(), e);
-                            executorService.shutdownNow();
                         }
-                        printStatus(resultCount.incrementAndGet());
                     }
                     if (transformationFailed) {
                         LOGGER.info(
@@ -275,14 +275,14 @@ public class DumpCommand extends CqlCommands {
         } else {
             BinaryContent binaryContent;
             if (metacard != null) {
-                try (FileOutputStream fos = new FileOutputStream(getOutputFile(dumpLocation,
-                        metacard))) {
-                    for (MetacardTransformer transformer : transformers) {
-                        binaryContent = transformer.transform(metacard, new HashMap<>());
-                        if (binaryContent != null) {
+                for (MetacardTransformer transformer : transformers) {
+                    binaryContent = transformer.transform(metacard, new HashMap<>());
+                    if (binaryContent != null) {
+                        try (FileOutputStream fos = new FileOutputStream(getOutputFile(dumpLocation,
+                                metacard))) {
                             fos.write(binaryContent.getByteArray());
-                            break;
                         }
+                        break;
                     }
                 }
             }
@@ -313,7 +313,7 @@ public class DumpCommand extends CqlCommands {
         console.flush();
     }
 
-    private List<MetacardTransformer> getTransformers() {
+    protected List<MetacardTransformer> getTransformers() {
         ServiceReference[] refs = null;
         try {
             refs = bundleContext.getAllServiceReferences(MetacardTransformer.class.getName(),

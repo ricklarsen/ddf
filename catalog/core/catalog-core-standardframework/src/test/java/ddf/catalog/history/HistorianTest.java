@@ -37,9 +37,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import org.apache.shiro.subject.ExecutionException;
+import org.codice.ddf.platform.util.uuidgenerator.UuidGenerator;
 import org.codice.ddf.security.common.Security;
 import org.junit.Before;
 import org.junit.Test;
@@ -100,9 +102,16 @@ public class HistorianTest {
 
     private Historian historian;
 
+    private UuidGenerator uuidGenerator;
+
     @Before
     public void setup() {
         historian = new Historian();
+
+        uuidGenerator = mock(UuidGenerator.class);
+        when(uuidGenerator.generateUuid()).thenReturn(UUID.randomUUID()
+                .toString());
+        historian.setUuidGenerator(uuidGenerator);
 
         catalogProvider = mock(CatalogProvider.class);
         historian.setCatalogProviders(Collections.singletonList(catalogProvider));
@@ -213,19 +222,6 @@ public class HistorianTest {
     }
 
     @Test
-    public void testUpdateStorageResponseEmptyStorageRequest()
-            throws UnsupportedQueryException, SourceUnavailableException, IngestException {
-        UpdateStorageRequest storageRequest = mock(UpdateStorageRequest.class);
-        UpdateStorageResponse storageResponse = mock(UpdateStorageResponse.class);
-        UpdateResponse updateResponse = mock(UpdateResponse.class);
-
-        historian.version(storageRequest, storageResponse, updateResponse);
-
-        verifyZeroInteractions(catalogProvider);
-        assertThat(storageProvider.storageMap.size(), equalTo(0));
-    }
-
-    @Test
     public void testUpdateStorageResponseSkipProperty()
             throws SourceUnavailableException, IngestException, UnsupportedQueryException {
         Map<String, Serializable> properties = new HashMap<>();
@@ -244,7 +240,6 @@ public class HistorianTest {
     public void testUpdateStorageResponse()
             throws UnsupportedQueryException, SourceUnavailableException, IngestException,
             URISyntaxException, StorageException {
-
         // The metacard and updated metacard
         List<Metacard> metacards = getMetacardUpdatePair();
 
@@ -269,6 +264,24 @@ public class HistorianTest {
         assertThat(storageResponse.getUpdatedContentItems()
                 .get(0)
                 .getUri(), not(equalTo(RESOURCE_URI)));
+    }
+
+    @Test
+    public void testUpdateStorageResponseWithOnlyQualifiedContentItems()
+            throws UnsupportedQueryException, SourceUnavailableException, IngestException,
+            URISyntaxException, StorageException {
+        // Parameters for historian
+        UpdateStorageResponse storageResponse = mock(UpdateStorageResponse.class);
+        ContentItem hasQualifier = mock(ContentItem.class);
+        when(hasQualifier.getQualifier()).thenReturn("some-qualifier");
+        ContentItem anotherHasQualifier = mock(ContentItem.class);
+        when(anotherHasQualifier.getQualifier()).thenReturn("another-qualifier");
+        when(storageResponse.getUpdatedContentItems()).thenReturn(Arrays.asList(
+                hasQualifier,
+                anotherHasQualifier));
+
+        historian.version(mock(UpdateStorageRequest.class), storageResponse, mock(UpdateResponse.class));
+        verifyZeroInteractions(catalogProvider);
     }
 
     @Test
@@ -543,7 +556,6 @@ public class HistorianTest {
     }
 
     private List<Update> createUpdatedMetacardList() {
-
         List<Metacard> metacards = getMetacardUpdatePair();
         return Collections.singletonList(new UpdateImpl(metacards.get(1), metacards.get(0)));
     }

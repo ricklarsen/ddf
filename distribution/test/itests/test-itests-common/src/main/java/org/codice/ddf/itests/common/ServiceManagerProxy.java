@@ -13,13 +13,16 @@
  **/
 package org.codice.ddf.itests.common;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.with;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 
 import org.apache.shiro.subject.Subject;
 import org.codice.ddf.security.common.Security;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import ddf.security.service.SecurityManager;
 
 /**
  * Runs the ServiceManager methods as the system subject
@@ -30,15 +33,17 @@ public class ServiceManagerProxy implements InvocationHandler {
 
     private ServiceManager serviceManager;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ServiceManagerProxy.class);
-
     public ServiceManagerProxy(ServiceManager serviceManager) {
         this.serviceManager = serviceManager;
     }
 
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-
+        //wait until the security manager is available otherwise the getSystemSubject command will fail
+        with().pollInterval(1, SECONDS)
+                .await()
+                .atMost(30, SECONDS)
+                .until(() -> serviceManager.getServiceReference(SecurityManager.class) != null);
         Subject subject = SECURITY.runAsAdmin(SECURITY::getSystemSubject);
         return subject.execute(() -> method.invoke(serviceManager, args));
     }

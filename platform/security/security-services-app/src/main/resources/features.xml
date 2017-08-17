@@ -18,7 +18,7 @@
 
     <repository>mvn:org.apache.karaf.features/spring/${karaf.version}/xml/features</repository>
 
-    <feature name="security-rest-authentication" install="manual" version="${project.version"
+    <feature name="security-rest-authentication" install="manual" version="${project.version}"
              description="Authentication endpoint for handling multiple realms">
         <bundle>mvn:ddf.platform.security/security-rest-authentication/${project.version}</bundle>
     </feature>
@@ -29,59 +29,60 @@
     </feature>
 
     <feature name="security-core" install="manual" version="${project.version}"
-             description="DDF Security Core">
+             description="Security Core">
         <feature prerequisite="true">security-core-api</feature>
         <feature>security-handler-api</feature>
         <bundle>mvn:ddf.security.expansion/security-expansion-api/${project.version}</bundle>
+        <bundle dependency="true">mvn:ddf.security.encryption/security-encryption-api/${project.version}</bundle>
         <bundle>mvn:ddf.security.core/security-core-impl/${project.version}</bundle>
     </feature>
 
     <feature name="security-expansion" install="manual" version="${project.version}"
-             description="DDF Security Expansion">
+             description="Security Expansion">
         <bundle>mvn:ddf.security.expansion/security-expansion-impl/${project.version}</bundle>
         <bundle>mvn:ddf.security.expansion/security-expansion-commands/${project.version}</bundle>
     </feature>
 
     <feature name="security-cas-client" install="manual" version="${project.version}"
-             description="DDF Security CAS Client.">
+             description="Security CAS Client.">
         <bundle>mvn:org.codice.thirdparty/cas-client-core/${cas.client.bundle.version}</bundle>
         <bundle>mvn:ddf.security.cas/security-cas-impl/${project.version}</bundle>
         <bundle>mvn:ddf.security.cas/security-cas-client/${project.version}/war</bundle>
     </feature>
 
     <feature name="security-cas-tokenvalidator" install="manual" version="${project.version}"
-             description="DDF Security CAS Validator for the STS.">
+             description="Security CAS Validator for the STS.">
         <bundle>mvn:ddf.security.cas/security-cas-tokenvalidator/${project.version}</bundle>
     </feature>
 
     <feature name="security-cas-cxfservletfilter" install="manual" version="${project.version}"
-             description="DDF Security CAS Servlet Filter for CXF.">
+             description="Security CAS Servlet Filter for CXF.">
         <feature>security-cas-client</feature>
         <bundle>mvn:ddf.security.cas/security-cas-cxfservletfilter/${project.version}</bundle>
     </feature>
 
     <feature name="security-pdp-authz" install="manual" version="${project.version}"
-             description="DDF Security PDP.">
+             description="Security PDP.">
         <configfile finalname="/etc/ddf.security.pdp.realm.AuthzRealm.config">mvn:ddf.security/security-services-app/${project.version}/config/pdp</configfile>
         <feature prerequisite="true">security-expansion</feature>
         <feature prerequisite="true">security-expansion-user-attributes</feature>
         <feature prerequisite="true">security-expansion-metacard-attributes</feature>
-        <bundle dependency="true">mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.commons-validator/1.3.1_2</bundle>
         <bundle>mvn:ddf.security.pdp/security-pdp-authzrealm/${project.version}</bundle>
     </feature>
 
     <feature name="security-pep-serviceauthz" install="manual" version="${project.version}"
-             description="DDF Security PEP Service AuthZ">
+             description="Security PEP Service AuthZ">
         <bundle>mvn:ddf.security.pep/security-pep-interceptor/${project.version}</bundle>
     </feature>
 
     <feature name="security-expansion-user-attributes" install="manual" version="${project.version}"
-             description="DDF Security Expansion User Attributes Expansion">
+             description="Security Expansion User Attributes Expansion">
         <bundle>mvn:ddf.security.expansion/security-expansion-userattr-map/${project.version}</bundle>
     </feature>
 
     <feature name="security-expansion-metacard-attributes" install="manual" version="${project.version}"
-             description="DDF Security Expansion Metacard Attributes Expansion">
+             description="Security Expansion Metacard Attributes Expansion">
+        <bundle dependency="true">mvn:ddf.security.expansion/security-expansion-api/${project.version}</bundle>
         <bundle>mvn:ddf.security.expansion/security-expansion-metacardattr-map/${project.version}</bundle>
     </feature>
 
@@ -92,11 +93,12 @@
         <bundle start-level="40">mvn:org.apache.cxf/cxf-rt-rs-security-jose/${cxf.version}</bundle>
         <bundle>mvn:org.apache.commons/commons-jexl/2.1.1</bundle>
         <bundle>mvn:ddf.security.handler/security-handler-pki/${project.version}</bundle>
+        <feature prerequisite="true">wrap</feature>
         <bundle>wrap:mvn:org.springframework.ldap/spring-ldap-core/1.3.2.RELEASE</bundle>
     </feature>
 
     <feature name="security-sts-server" install="manual" version="${project.version}"
-             description="DDF Security STS.">
+             description="Security STS.">
         <feature prerequisite="true">sts-prereqs</feature>
         <configfile finalname="/etc/ws-security/attributeMap.properties">
             mvn:ddf.security.sts/security-sts-ldapclaimshandler/${project.version}/properties/attributeMap
@@ -104,7 +106,7 @@
         <bundle>mvn:ddf.security.sts/security-sts-server/${project.version}</bundle>
         <bundle>mvn:ddf.security.sts/security-sts-propertyclaimshandler/${project.version}</bundle>
         <bundle dependency="true">
-            mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.dom4j/1.6.1_5
+            mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.dom4j/${dom4j.bundle.version}
         </bundle>
         <bundle dependency="true">
             mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.oro/2.0.8_6
@@ -118,12 +120,12 @@
     </feature>
 
     <feature name="security-sts-realm" install="manual" version="${project.version}"
-             description="DDF Security STS Realm.">
+             description="Security STS Realm.">
         <bundle>mvn:ddf.security.sts/security-sts-realm/${project.version}</bundle>
     </feature>
 
     <feature name="security-sts-ldaplogin" install="manual" version="${project.version}"
-             description="DDF Security STS JAAS LDAP Login.">
+             description="Security STS JAAS LDAP Login.">
         <bundle>mvn:ddf.security.sts/security-sts-ldaplogin/${project.version}</bundle>
     </feature>
 
@@ -139,7 +141,7 @@
 
     <feature name="ldap-embedded-default-claimshandler-config" install="manual" version="${project.version}" description="Installs a default embedded ldap login config">
         <configfile
-                finalname="/etc/ddf.security.sts.claimsHandler.ClaimsHandlerManager.config"
+                finalname="/etc/Claims_Handler_Manager-ddf.security.sts.claimsHandler.ClaimsHandlerManager.config"
                 override="false">
             mvn:ddf.security/security-services-app/${project.version}/config/ddf.security.sts.claimsHandler.ClaimsHandlerManager
         </configfile>
@@ -147,7 +149,7 @@
 
     <feature name="ldap-embedded-default-stslogin-config" install="manual" version="${project.version}" description="Installs a default embedded ldap claims handler config">
         <configfile
-                finalname="/etc/ddf.ldap.ldaplogin.LdapLoginConfig.config"
+                finalname="/etc/Ldap_Login_Config-ddf.ldap.ldaplogin.LdapLoginConfig.config"
                 override="false">
             mvn:ddf.security/security-services-app/${project.version}/config/ddf.ldap.ldaplogin.LdapLoginConfig
         </configfile>
@@ -260,6 +262,11 @@
         <bundle>mvn:ddf.security.servlet/security-servlet-logout/${project.version}</bundle>
     </feature>
 
+    <feature name="security-servlet-whoami" install="manual" version="${project.version}"
+             description="Who Am I servlet.">
+        <bundle>mvn:ddf.security.servlet/security-servlet-whoami/${project.version}</bundle>
+    </feature>
+
     <feature name="security-idp" install="manual" version="${project.version}"
              description="IDP server and client">
         <bundle>mvn:ddf.security.idp/security-idp-client/${project.version}</bundle>
@@ -271,8 +278,13 @@
         <bundle>mvn:ddf.security.migration/security-migratable/${project.version}</bundle>
     </feature>
 
+    <feature name ="security-command-listener" install="manual" version="${project.version}"
+             description="Audits all commands entered on the Karaf command line.">
+        <bundle>mvn:ddf.security.command/security-command-listener/${project.version}</bundle>
+    </feature>
+
     <feature name="security-services-app" install="auto" version="${project.version}"
-             description="The Security Application provides Authentication, Authorization, and Auditing services for the DDF.\nThey comprise both a framework that developers and integrators can extend and also a reference implementation that can be used which meets security requirements.::Security">
+             description="The Security Application provides Authentication, Authorization, and Auditing services.\nThey comprise both a framework that developers and integrators can extend and also a reference implementation that can be used which meets security requirements.::Security">
         <feature prerequisite="true">platform-app</feature>
         <feature>security-all</feature>
     </feature>
@@ -287,6 +299,7 @@
         <feature>security-certificate</feature>
         <feature>security-migratable</feature>
         <feature>security-rest-authentication</feature>
+        <feature>security-command-listener</feature>
     </feature>
 
     <feature name="security-web-sso-defaults" install="manual" version="${project.version}"
@@ -303,6 +316,7 @@
         <feature>security-filter-authz</feature>
         <feature>security-pdp-authz</feature>
         <feature>security-servlet-logout</feature>
+        <feature>security-servlet-whoami</feature>
         <feature>security-sts-realm</feature>
     </feature>
 

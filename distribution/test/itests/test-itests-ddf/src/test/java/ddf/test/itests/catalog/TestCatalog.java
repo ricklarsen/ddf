@@ -22,9 +22,11 @@ import static org.codice.ddf.itests.common.catalog.CatalogTestCommons.update;
 import static org.codice.ddf.itests.common.config.ConfigureTestCommons.configureEnforceValidityErrorsAndWarnings;
 import static org.codice.ddf.itests.common.config.ConfigureTestCommons.configureFilterInvalidMetacards;
 import static org.codice.ddf.itests.common.config.ConfigureTestCommons.configureShowInvalidMetacards;
+import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswFunctionQuery;
 import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswInsertRequest;
 import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswQuery;
 import static org.codice.ddf.itests.common.csw.CswTestCommons.getMetacardIdFromCswInsertResponse;
+import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.getOpenSearch;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.is;
@@ -32,6 +34,7 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.startsWith;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.xml.HasXPath.hasXPath;
 import static org.junit.Assert.assertThat;
@@ -56,7 +59,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Dictionary;
 import java.util.HashMap;
@@ -73,10 +76,13 @@ import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.xml.xpath.XPathExpressionException;
 
+import org.apache.camel.CamelContext;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpStatus;
 import org.codice.ddf.catalog.content.monitor.ContentDirectoryMonitor;
+import org.codice.ddf.catalog.plugin.metacard.backup.storage.filestorage.MetacardFileStorageRoute;
 import org.codice.ddf.itests.common.AbstractIntegrationTest;
 import org.codice.ddf.itests.common.annotations.BeforeExam;
 import org.codice.ddf.itests.common.annotations.ConditionalIgnoreRule;
@@ -101,6 +107,9 @@ import org.junit.runner.RunWith;
 import org.ops4j.pax.exam.junit.PaxExam;
 import org.ops4j.pax.exam.spi.reactors.ExamReactorStrategy;
 import org.ops4j.pax.exam.spi.reactors.PerSuite;
+import org.osgi.framework.BundleContext;
+import org.osgi.framework.FrameworkUtil;
+import org.osgi.framework.ServiceReference;
 import org.osgi.service.cm.Configuration;
 import org.w3c.dom.Node;
 
@@ -116,6 +125,7 @@ import ddf.catalog.data.DefaultAttributeValueRegistry;
 import ddf.catalog.data.Metacard;
 import ddf.catalog.data.MetacardType;
 import ddf.catalog.data.types.Core;
+import ddf.catalog.plugin.PostIngestPlugin;
 
 /**
  * Tests the Catalog framework components. Includes helper methods at the Catalog level.
@@ -124,25 +134,25 @@ import ddf.catalog.data.types.Core;
 @ExamReactorStrategy(PerSuite.class)
 public class TestCatalog extends AbstractIntegrationTest {
 
+    public static final String ADMIN = "admin";
+
+    public static final String ADMIN_EMAIL = "admin@localhost.local";
+
     private static final String METACARD_X_PATH = "/metacards/metacard[@id='%s']";
 
     private static final String SAMPLE_DATA = "sample data";
 
     private static final String SAMPLE_IMAGE = "/9466484_b06f26d579_o.jpg";
 
-    private static final String SAMPLE_MP4 = "/sample.mp4";
+    private static final String SAMPLE_MP4 = "sample.mp4";
 
-    private static final String METACARD_BACKUP_DIRECTORY = "data/tmp/backup";
+    private static final String METACARD_BACKUP_PATH_TEMPLATE =
+            "data/backup/metacard/{{substring id 0 3}}/{{substring id 3 6}}/{{id}}.xml";
 
-    private static final String METACARD_BACKUP_FILE_STORAGE_FEATURE = "catalog-metacard-backup-filestorage";
-
-    private static final String METACARD_BACKUP_PLUGIN_FEATURE = "catalog-metacard-backup";
+    private static final String METACARD_BACKUP_FILE_STORAGE_FEATURE =
+            "catalog-metacard-backup-filestorage";
 
     private static final String DEFAULT_URL_RESOURCE_READER_ROOT_RESOURCE_DIRS = "data/products";
-
-    public static final String ADMIN = "admin";
-
-    public static final String ADMIN_EMAIL = "admin@localhost.local";
 
     @Rule
     public TestName testName = new TestName();
@@ -151,6 +161,20 @@ public class TestCatalog extends AbstractIntegrationTest {
     public ConditionalIgnoreRule rule = new ConditionalIgnoreRule();
 
     private UrlResourceReaderConfigurator urlResourceReaderConfigurator;
+
+    public static String getGetRecordByIdProductRetrievalUrl() {
+        return "?service=CSW&version=2.0.2&request=GetRecordById&NAMESPACE=xmlns="
+                + "http://www.opengis.net/cat/csw/2.0.2&"
+                + "outputFormat=application/octet-stream&outputSchema="
+                + "http://www.iana.org/assignments/media-types/application/octet-stream&"
+                + "id=placeholder_id";
+    }
+
+    public static String getSimpleXml(String uri) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + getFileContent(
+                XML_RECORD_RESOURCE_PATH + "/SimpleXmlNoDecMetacard",
+                ImmutableMap.of("uri", uri));
+    }
 
     @BeforeExam
     public void beforeExam() throws Exception {
@@ -376,32 +400,32 @@ public class TestCatalog extends AbstractIntegrationTest {
         String id4 = ingestXmlFromResource("/metacard4.xml");
 
         // Test xml-format response for an all-query
-        ValidatableResponse response = executeOpenSearch("xml", "q=*");
+        ValidatableResponse response = getOpenSearch("xml", null, null, "q=*");
         response.body(hasXPath(format(METACARD_X_PATH, id1)))
                 .body(hasXPath(format(METACARD_X_PATH, id2)))
                 .body(hasXPath(format(METACARD_X_PATH, id3)))
                 .body(hasXPath(format(METACARD_X_PATH, id4)));
 
         // Execute a text search against a value in an indexed field (metadata)
-        response = executeOpenSearch("xml", "q=dunder*");
+        response = getOpenSearch("xml", null, null, "q=dunder*");
         response.body(hasXPath(format(METACARD_X_PATH, id3)))
                 .body(not(hasXPath(format(METACARD_X_PATH, id1))))
                 .body(not(hasXPath(format(METACARD_X_PATH, id2))))
                 .body(not(hasXPath(format(METACARD_X_PATH, id4))));
 
         // Execute a text search against a value that isn't in any indexed fields
-        response = executeOpenSearch("xml", "q=whatisthedealwithairlinefood");
+        response = getOpenSearch("xml", null, null, "q=whatisthedealwithairlinefood");
         response.body("metacards.metacard.size()", equalTo(0));
 
         // Execute a geo search that should match a point card
-        response = executeOpenSearch("xml", "lat=40.689", "lon=-74.045", "radius=250");
+        response = getOpenSearch("xml", null, null, "lat=40.689", "lon=-74.045", "radius=250");
         response.body(hasXPath(format(METACARD_X_PATH, id1)))
                 .body(not(hasXPath(format(METACARD_X_PATH, id2))))
                 .body(not(hasXPath(format(METACARD_X_PATH, id3))))
                 .body(not(hasXPath(format(METACARD_X_PATH, id4))));
 
         // Execute a geo search...this should match two cards, both polygons around the Space Needle
-        response = executeOpenSearch("xml", "lat=47.62", "lon=-122.356", "radius=500");
+        response = getOpenSearch("xml", null, null, "lat=47.62", "lon=-122.356", "radius=500");
         response.body(hasXPath(format(METACARD_X_PATH, id2)))
                 .body(hasXPath(format(METACARD_X_PATH, id4)))
                 .body(not(hasXPath(format(METACARD_X_PATH, id1))))
@@ -434,6 +458,14 @@ public class TestCatalog extends AbstractIntegrationTest {
                 .post(CSW_PATH.getUrl());
     }
 
+    private Response ingestXmlWithHeaderMetacard() {
+        return given().header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_XML)
+                .body(getCswInsertRequest("xml",
+                        getFileContent(XML_RECORD_RESOURCE_PATH + "/SimpleXmlMetacard",
+                                ImmutableMap.of("uri", "http://example.com"))))
+                .post(CSW_PATH.getUrl());
+    }
+
     @Test
     public void testCswIngest() {
         Response response = ingestCswRecord();
@@ -457,22 +489,61 @@ public class TestCatalog extends AbstractIntegrationTest {
     @Test
     public void testCswIngestWithMetadataBackup() throws Exception {
         getServiceManager().startFeature(true, METACARD_BACKUP_FILE_STORAGE_FEATURE);
-        String fileStorageId = "fileStorageProvider";
+
+        int startingPostIngestServices = 0;
+        Collection<ServiceReference<PostIngestPlugin>> serviceRefs =
+                getServiceManager().getServiceReferences(PostIngestPlugin.class, null);
+        if (CollectionUtils.isNotEmpty(serviceRefs)) {
+            startingPostIngestServices = serviceRefs.size();
+        }
+
         Map<String, Object> storageProps = new HashMap<>();
-        storageProps.put("id", fileStorageId);
-        storageProps.put("outputDirectory", METACARD_BACKUP_DIRECTORY);
-        getServiceManager().createManagedService(
-                "org.codice.ddf.catalog.plugin.metacard.backup.storage.filestorage.MetacardBackupFileStorage",
+        storageProps.put("outputPathTemplate", METACARD_BACKUP_PATH_TEMPLATE);
+        storageProps.put("metacardTransformerId", "metadata");
+        storageProps.put("keepDeletedMetacards", true);
+        storageProps.put("backupInvalidMetacards", true);
+        storageProps.put("backupMetacardTags", Arrays.asList("resource"));
+        Configuration storageRouteConfiguration = getServiceManager().createManagedService(
+                "Metacard_File_Storage_Route",
                 storageProps);
 
-        getServiceManager().startFeature(true, METACARD_BACKUP_PLUGIN_FEATURE);
-        Map<String, Object> properties = new HashMap<>();
-        properties.put("metacardTransformerId", "metadata");
-        properties.put("keepDeletedMetacards", false);
-        properties.put("metacardOutputProviderIds", Collections.singletonList(fileStorageId));
-        getServiceManager().createManagedService(
-                "org.codice.ddf.catalog.plugin.metacard.backup.MetacardBackupPlugin",
-                properties);
+        expect("Service to be available: " + MetacardFileStorageRoute.class.getName()).within(30,
+                TimeUnit.SECONDS)
+                .checkEvery(5, TimeUnit.SECONDS)
+                .until(() -> getServiceManager().getServiceReferences(PostIngestPlugin.class, null)
+                        .size(), greaterThan(startingPostIngestServices));
+
+        expect("Camel Context to be available").within(30, TimeUnit.SECONDS)
+                .checkEvery(5, TimeUnit.SECONDS)
+                .until(() -> getServiceManager().getServiceReferences(CamelContext.class,
+                        "(camel.context.name=metacardBackupCamelContext)"), not(empty()));
+
+        BundleContext bundleContext = FrameworkUtil.getBundle(TestCatalog.class)
+                .getBundleContext();
+        Collection<ServiceReference<CamelContext>> camelContextServiceRefs =
+                getServiceManager().getServiceReferences(CamelContext.class,
+                        "(camel.context.name=metacardBackupCamelContext)");
+        CamelContext fileStorageRouteCamelContext = null;
+        for (ServiceReference<CamelContext> camelContextServiceReference : camelContextServiceRefs) {
+            fileStorageRouteCamelContext = bundleContext.getService(camelContextServiceReference);
+
+            if (fileStorageRouteCamelContext != null) {
+                break;
+            }
+        }
+
+        final CamelContext camelContext = fileStorageRouteCamelContext;
+        assertThat(camelContext, notNullValue());
+        expect("Camel route definitions were not found").within(30, TimeUnit.SECONDS)
+                .checkEvery(5, TimeUnit.SECONDS)
+                .until(() -> camelContext.getRouteDefinitions(), hasSize(2));
+
+        camelContext.startAllRoutes();
+
+        expect("Camel routes are started").within(30, TimeUnit.SECONDS)
+                .checkEvery(5, TimeUnit.SECONDS)
+                .until(() -> camelContext.isStartingRoutes(), is(false));
+
         Response response = ingestCswRecord();
         ValidatableResponse validatableResponse = response.then();
 
@@ -484,7 +555,7 @@ public class TestCatalog extends AbstractIntegrationTest {
                         is("Aliquam fermentum purus quis arcu")),
                 hasXPath("//TransactionResponse/InsertResult/BriefRecord/BoundingBox"));
         verifyMetadataBackup();
-        getServiceManager().stopFeature(true, METACARD_BACKUP_PLUGIN_FEATURE);
+        getServiceManager().stopManagedService(storageRouteConfiguration.getPid());
         getServiceManager().stopFeature(true, METACARD_BACKUP_FILE_STORAGE_FEATURE);
         try {
             CatalogTestCommons.deleteMetacardUsingCswResponseId(response);
@@ -514,6 +585,25 @@ public class TestCatalog extends AbstractIntegrationTest {
     }
 
     @Test
+    public void testCswXmlWithHeaderIngest() {
+        Response response = ingestXmlWithHeaderMetacard();
+
+        response.then()
+                .body(hasXPath("//TransactionResponse/TransactionSummary/totalInserted", is("1")),
+                        hasXPath("//TransactionResponse/TransactionSummary/totalUpdated", is("0")),
+                        hasXPath("//TransactionResponse/TransactionSummary/totalDeleted", is("0")),
+                        hasXPath("//TransactionResponse/InsertResult/BriefRecord/title",
+                                is("myXmlTitle")),
+                        hasXPath("//TransactionResponse/InsertResult/BriefRecord/BoundingBox"));
+
+        try {
+            CatalogTestCommons.deleteMetacardUsingCswResponseId(response);
+        } catch (IOException | XPathExpressionException e) {
+            fail("Could not retrieve the ingested record's ID from the response.");
+        }
+    }
+
+    @Test
     public void testCswUtmQuery() {
         Response response = ingestXmlViaCsw();
         response.then();
@@ -531,6 +621,52 @@ public class TestCatalog extends AbstractIntegrationTest {
             CatalogTestCommons.deleteMetacardUsingCswResponseId(response);
         } catch (IOException | XPathExpressionException e) {
             fail("Could not retrieve the ingested record's ID from the response.");
+        }
+    }
+
+    @Test
+    public void testCswCQLFunctionQuery() {
+        String id = ingest(getFileContent("metacard5.xml"), "text/xml");
+        try {
+
+            given().header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_XML)
+                    .get(CSW_PATH.getUrl() + "?service=CSW&version=2.0.2&" + "request=GetRecords&"
+                            + "outputFormat=application/xml&"
+                            + "outputSchema=http://www.opengis.net/cat/csw/2.0.2&"
+                            + "NAMESPACE=xmlns(csw=http://www.opengis.net/cat/csw/2.0.2)&"
+                            + "resultType=results&typeNames=csw:Record&"
+                            + "ElementSetName=brief&ConstraintLanguage=CQL_TEXT&"
+                            + "constraint=proximity(metadata,2,'All Hail Our SysAdmin')=true")
+                    .then()
+                    .assertThat()
+                    .statusCode(equalTo(200))
+                    .body(hasXPath("/GetRecordsResponse/SearchResults[@numberOfRecordsReturned]"),
+                            not("0"));
+        } finally {
+            deleteMetacard(id);
+        }
+    }
+
+    @Test
+    public void testCswFunctionQuery() {
+        String id = ingest(getFileContent("metacard5.xml"), "text/xml");
+        try {
+            given().header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_XML)
+                    .body(getCswFunctionQuery("metadata",
+                            true,
+                            "application/xml",
+                            "http://www.opengis.net/cat/csw/2.0.2",
+                            "proximity",
+                            2,
+                            "All Hail Our SysAdmin"))
+                    .post(CSW_PATH.getUrl())
+                    .then()
+                    .assertThat()
+                    .statusCode(equalTo(200))
+                    .body(hasXPath("/GetRecordsResponse/SearchResults[@numberOfRecordsReturned]"),
+                            not("0"));
+        } finally {
+            deleteMetacard(id);
         }
     }
 
@@ -1220,7 +1356,7 @@ public class TestCatalog extends AbstractIntegrationTest {
         String xPath = format(METACARD_X_PATH, id1);
 
         // Test without filtering
-        ValidatableResponse response = executeOpenSearch("xml", "q=*");
+        ValidatableResponse response = getOpenSearch("xml", null, null, "q=*");
         response.body(hasXPath(xPath));
 
         getServiceManager().startFeature(true, "sample-filter");
@@ -1238,10 +1374,11 @@ public class TestCatalog extends AbstractIntegrationTest {
             getServiceManager().waitForAllBundles();
 
             // Test with filtering with out point-of-contact
-            response = executeOpenSearch("xml", "q=*");
+            response = getOpenSearch("xml", null, null, "q=*");
             response.body(not(hasXPath(xPath)));
 
-            response = executeAdminOpenSearch("xml", "q=*");
+            response = getOpenSearch("xml", "admin", "admin", "q=*");
+
             response.body(hasXPath(xPath));
 
         } finally {
@@ -1263,7 +1400,7 @@ public class TestCatalog extends AbstractIntegrationTest {
         String xPath1 = format(METACARD_X_PATH, id1);
 
         //verify ingest by querying
-        ValidatableResponse response = executeOpenSearch("xml", "q=*");
+        ValidatableResponse response = getOpenSearch("xml", null, null, "q=*");
         response.body(hasXPath(xPath1));
 
         //change ingest plugin role to ingest
@@ -1288,7 +1425,7 @@ public class TestCatalog extends AbstractIntegrationTest {
                 .post(REST_PATH.getUrl());
 
         //verify query for first id works
-        response = executeOpenSearch("xml", "q=*");
+        response = getOpenSearch("xml", null, null, "q=*");
         response.body(hasXPath(xPath1));
 
         //revert to original configuration
@@ -1307,16 +1444,16 @@ public class TestCatalog extends AbstractIntegrationTest {
         Used for validation */
         final Matcher<Node> hasInitialDescription = hasMetacardAttributeXPath("description",
                 "Lombardi");
-        final Matcher<Node> hasInitialMetacardTags = hasMetacardAttributeXPath("metacard-tags",
-                "GAMMA",
-                "DELTA",
-                "FOXTROT",
-                "resource");
+        final Matcher<Node> hasInitialDerivedUrls = hasMetacardAttributeXPath(
+                "resource.derived-download-url",
+                "http://example.com/1",
+                "http://example.com/2",
+                "http://example.com/3");
         final Matcher<Node> hasNewDescription = hasMetacardAttributeXPath("description", "None");
-        final Matcher<Node> hasNewMetacardTags = hasMetacardAttributeXPath("metacard-tags",
-                "ALPHA",
-                "BRAVO",
-                "resource");
+        final Matcher<Node> hasNewDerivedUrls = hasMetacardAttributeXPath(
+                "resource.derived-download-url",
+                "http://example.com/4",
+                "http://example.com/5");
         final Matcher<Node> hasNewSecurityAccessGroups = hasMetacardAttributeXPath(
                 "security.access-groups",
                 "FIFA",
@@ -1338,7 +1475,7 @@ public class TestCatalog extends AbstractIntegrationTest {
                 "security.access-groups = FIFA, NFL");
 
         List<Object> attributeAdjustmentsForRule2 = ImmutableList.of("description = None",
-                "metacard-tags = ALPHA, BRAVO, resource");
+                "resource.derived-download-url = http://example.com/4, http://example.com/5");
 
         networkRule1Properties.put("criteriaKey", "remoteAddr");
         networkRule1Properties.put("expectedValue", clientIP);
@@ -1368,14 +1505,14 @@ public class TestCatalog extends AbstractIntegrationTest {
             Note only the first validation gets security since it's parsed by tika */
             getMetacardValidatableResponse(simpleProductId).assertThat()
                     .body(hasNewDescription)
-                    .body(hasNewMetacardTags)
+                    .body(hasNewDerivedUrls)
                     .body(hasNewSecurityAccessGroups);
             getMetacardValidatableResponse(card1Id).assertThat()
                     .body(hasInitialDescription)
-                    .body(hasNewMetacardTags);
+                    .body(hasNewDerivedUrls);
             getMetacardValidatableResponse(card2Id).assertThat()
                     .body(hasNewDescription)
-                    .body(hasInitialMetacardTags);
+                    .body(hasInitialDerivedUrls);
 
         } finally {
 
@@ -1434,10 +1571,7 @@ public class TestCatalog extends AbstractIntegrationTest {
         try (InputStream inputStream = IOUtils.toInputStream(getFileContent("sample.mp4"))) {
             final byte[] fileBytes = IOUtils.toByteArray(inputStream);
 
-            final ValidatableResponse response = given().multiPart("file",
-                    "sample.mp4",
-                    fileBytes,
-                    "video/mp4")
+            given().multiPart("file", SAMPLE_MP4, fileBytes, "video/mp4")
                     .post(REST_PATH.getUrl())
                     .then()
                     .statusCode(201);
@@ -1478,6 +1612,67 @@ public class TestCatalog extends AbstractIntegrationTest {
                 .body(hasXPath("//TransactionResponse/TransactionSummary/totalDeleted", is("1")),
                         hasXPath("//TransactionResponse/TransactionSummary/totalInserted", is("0")),
                         hasXPath("//TransactionResponse/TransactionSummary/totalUpdated", is("0")));
+    }
+
+    @Test
+    public void testAttributeOverridesOnUpdate() throws Exception {
+        final String TMP_PREFIX = "tcdm_";
+        final String attribute = "title";
+        final String value = "someTitleIMadeUp";
+
+        Path tmpDir = Files.createTempDirectory(TMP_PREFIX);
+        tmpDir.toFile()
+                .deleteOnExit();
+        Path tmpFile = Files.createTempFile(tmpDir, TMP_PREFIX, "_tmp.xml");
+        tmpFile.toFile()
+                .deleteOnExit();
+        Files.copy(getFileContentAsStream("metacard5.xml"),
+                tmpFile,
+                StandardCopyOption.REPLACE_EXISTING);
+
+        Map<String, Object> cdmProperties = new HashMap<>();
+        cdmProperties.putAll(getServiceManager().getMetatypeDefaults("content-core-directorymonitor",
+                "org.codice.ddf.catalog.content.monitor.ContentDirectoryMonitor"));
+        cdmProperties.put("monitoredDirectoryPath", tmpDir.toString() + "/");
+        cdmProperties.put("processingMechanism", ContentDirectoryMonitor.IN_PLACE);
+        cdmProperties.put("attributeOverrides", format("%s=%s", attribute, value));
+        Configuration managedService = getServiceManager().createManagedService(
+                "org.codice.ddf.catalog.content.monitor.ContentDirectoryMonitor",
+                cdmProperties);
+
+        //assert that the file was ingested
+        ValidatableResponse response = assertIngestedDirectoryMonitor("SysAdmin", 1);
+
+        //assert that the metacard contains the overridden attribute
+        assertStringMetacardAttribute(response, attribute, value);
+
+        //edit the file
+        Files.copy(getFileContentAsStream("metacard4.xml"),
+                tmpFile,
+                StandardCopyOption.REPLACE_EXISTING);
+
+        //assert updated
+        response = assertIngestedDirectoryMonitor("Space", 1);
+
+        //assert that the metacard still contains the overridden attribute
+        assertStringMetacardAttribute(response, attribute, value);
+
+        //delete the file
+        tmpFile.toFile()
+                .delete();
+
+        //assert deleted
+        assertIngestedDirectoryMonitor("SysAdmin", 0);
+
+        getServiceManager().stopManagedService(managedService.getPid());
+    }
+
+    private ValidatableResponse assertStringMetacardAttribute(ValidatableResponse response,
+            String attribute, String value) {
+        String attributeValueXpath = format("/metacards/metacard/string[@name='%s']/value",
+                attribute);
+        response.body(hasXPath(attributeValueXpath, is(value)));
+        return response;
     }
 
     @Test
@@ -1611,7 +1806,7 @@ public class TestCatalog extends AbstractIntegrationTest {
         long startTime = System.nanoTime();
         ValidatableResponse response;
         do {
-            response = executeOpenSearch("xml", "q=*" + query + "*");
+            response = getOpenSearch("xml", null, null, "q=*" + query + "*");
             if (response.extract()
                     .xmlPath()
                     .getList("metacards.metacard")
@@ -1619,13 +1814,44 @@ public class TestCatalog extends AbstractIntegrationTest {
                 break;
             }
             try {
-                TimeUnit.MILLISECONDS.sleep(50);
+                TimeUnit.SECONDS.sleep(1);
             } catch (InterruptedException e) {
             }
         } while (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime)
-                < TimeUnit.MINUTES.toMillis(1));
+                < TimeUnit.MINUTES.toMillis(3));
         response.body("metacards.metacard.size()", equalTo(numResults));
         return response;
+    }
+
+    @Test
+    public void testIngestXmlNoExtension() throws Exception {
+        final String TMP_PREFIX = "tcdm_";
+        Path tmpDir = Files.createTempDirectory(TMP_PREFIX);
+        tmpDir.toFile()
+                .deleteOnExit();
+        Path tmpFile = Files.createTempFile(tmpDir, TMP_PREFIX, "_tmp");
+        tmpFile.toFile()
+                .deleteOnExit();
+        Files.copy(getFileContentAsStream("metacard5.xml"),
+                tmpFile,
+                StandardCopyOption.REPLACE_EXISTING);
+
+        Map<String, Object> cdmProperties = new HashMap<>();
+        cdmProperties.putAll(getServiceManager().getMetatypeDefaults("content-core-directorymonitor",
+                "org.codice.ddf.catalog.content.monitor.ContentDirectoryMonitor"));
+        cdmProperties.put("monitoredDirectoryPath", tmpDir.toString() + "/");
+        cdmProperties.put("processingMechanism", ContentDirectoryMonitor.IN_PLACE);
+        Configuration managedService = getServiceManager().createManagedService(
+                "org.codice.ddf.catalog.content.monitor.ContentDirectoryMonitor",
+                cdmProperties);
+
+        ValidatableResponse response = assertIngestedDirectoryMonitor("SysAdmin", 1);
+        response.extract()
+                .xmlPath()
+                .getString("metacards.metacard.type")
+                .equals("ddf.metacard");
+
+        getServiceManager().stopManagedService(managedService.getPid());
     }
 
     @Test
@@ -1686,7 +1912,7 @@ public class TestCatalog extends AbstractIntegrationTest {
         try {
             String newMetacardXpath = format("/metacards/metacard[@id=\"%s\"]", id);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath(newMetacardXpath + "/type", is(newMetacardTypeName)))
@@ -1765,7 +1991,7 @@ public class TestCatalog extends AbstractIntegrationTest {
             final String metacard1XPath = format(METACARD_X_PATH, id1);
             final String metacard2XPath = format(METACARD_X_PATH, id2);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     // The metacard had a title, so it should not have been set to the default
@@ -1840,7 +2066,7 @@ public class TestCatalog extends AbstractIntegrationTest {
             final String metacard1XPath = format(METACARD_X_PATH, id1);
             final String metacard2XPath = format(METACARD_X_PATH, id2);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath(metacard1XPath + "/string[@name='title']/value",
@@ -1888,7 +2114,7 @@ public class TestCatalog extends AbstractIntegrationTest {
             final String basicMetacardXpath = format(METACARD_X_PATH, id);
             final String otherMetacardXpath = format(METACARD_X_PATH, id2);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath(basicMetacardXpath + "/type", is(basicMetacardTypeName)))
@@ -1925,7 +2151,7 @@ public class TestCatalog extends AbstractIntegrationTest {
             final String basicMetacardXpath = format(METACARD_X_PATH, id);
             final String otherMetacardXpath = format(METACARD_X_PATH, id2);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath(basicMetacardXpath + "/type", is(basicMetacardTypeName)))
@@ -1989,12 +2215,12 @@ public class TestCatalog extends AbstractIntegrationTest {
                             .size(), equalTo(1));
 
             List<Map<String, Object>> storedWs = pstore.get(PersistentStore.WORKSPACE_TYPE,
-                    "id = 'itest'");
+                    "\"id\" = 'itest'");
             assertThat(storedWs, hasSize(1));
             assertThat(storedWs.get(0)
                     .get("user_txt"), is("itest"));
         } finally {
-            pstore.delete(PersistentStore.WORKSPACE_TYPE, "id = 'itest'");
+            pstore.delete(PersistentStore.WORKSPACE_TYPE, "\"id\" = 'itest'");
             expect("Workspace to be empty").within(5, TimeUnit.MINUTES)
                     .until(() -> pstore.get(PersistentStore.WORKSPACE_TYPE)
                             .size(), equalTo(0));
@@ -2023,7 +2249,7 @@ public class TestCatalog extends AbstractIntegrationTest {
             configureShowInvalidMetacards("true", "true", getAdminConfig());
             String newMetacardXpath = format("/metacards/metacard[@id=\"%s\"]", invalidCardId);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath("count(" + newMetacardXpath
@@ -2036,7 +2262,7 @@ public class TestCatalog extends AbstractIntegrationTest {
 
             String newMetacardXpath2 = format("/metacards/metacard[@id=\"%s\"]", validCardId);
 
-            executeOpenSearch("xml", "q=*").log()
+            getOpenSearch("xml", null, null, "q=*").log()
                     .all()
                     .assertThat()
                     .body(hasXPath("count(" + newMetacardXpath2
@@ -2078,7 +2304,8 @@ public class TestCatalog extends AbstractIntegrationTest {
 
         String metacardPath = format("/metacards/metacard[@id=\"%s\"]", id);
 
-        ValidatableResponse response = executeOpenSearch("xml", "q=*").log()
+        ValidatableResponse response;
+        response = getOpenSearch("xml", null, null, "q=*").log()
                 .all();
 
         response.assertThat()
@@ -2124,42 +2351,79 @@ public class TestCatalog extends AbstractIntegrationTest {
         deleteMetacard(id);
     }
 
-    private ValidatableResponse executeOpenSearch(String format, String... query) {
-        StringBuilder buffer = new StringBuilder(OPENSEARCH_PATH.getUrl()).append("?")
-                .append("format=")
-                .append(format);
+    @Test
+    public void testIngestSanitizationBadFile() throws Exception {
+        // DDF-3172 bad.files and bad.file.extensions in system.properties is not being respected
 
-        for (String term : query) {
-            buffer.append("&")
-                    .append(term);
-        }
+        // setup
+        String fileName = "robots.txt";    // filename in bad.files
+        File tmpFile = createTemporaryFile(fileName, IOUtils.toInputStream("Test"));
 
-        String url = buffer.toString();
-        LOGGER.info("Getting response to {}", url);
+        // ingest
+        String id = given().multiPart(tmpFile)
+                .expect()
+                .log()
+                .headers()
+                .statusCode(HttpStatus.SC_CREATED)
+                .when()
+                .post(REST_PATH.getUrl())
+                .getHeader("id");
 
-        return when().get(url)
-                .then();
+        // query - check if sanitized properly
+        getOpenSearch("xml", null, null, "q=*").log()
+                .all()
+                .assertThat()
+                .body(hasXPath(format(METACARD_X_PATH, id) + "/string[@name='title']/value",
+                        is("file.bin")));
+
+        // clean up
+        deleteMetacard(id);
     }
 
-    private ValidatableResponse executeAdminOpenSearch(String format, String... query) {
-        StringBuilder buffer = new StringBuilder(OPENSEARCH_PATH.getUrl()).append("?")
-                .append("format=")
-                .append(format);
+    @Test
+    public void testIngestSanitizationBadExtension() throws Exception {
+        // DDF-3172 bad.files and bad.file.extensions in system.properties is not being respected
 
-        for (String term : query) {
-            buffer.append("&")
-                    .append(term);
-        }
+        // setup
+        String fileName = "bad_file.cgi";      // file extension in bad.file.extensions
+        File tmpFile = createTemporaryFile(fileName, IOUtils.toInputStream("Test"));
 
-        String url = buffer.toString();
-        LOGGER.info("Getting response to {}", url);
-
-        return given().auth()
-                .preemptive()
-                .basic("admin", "admin")
+        // ingest
+        String id = given().multiPart(tmpFile)
+                .expect()
+                .log()
+                .headers()
+                .statusCode(HttpStatus.SC_CREATED)
                 .when()
-                .get(url)
-                .then();
+                .post(REST_PATH.getUrl())
+                .getHeader("id");
+
+        // query - check if sanitized properly
+        getOpenSearch("xml", null, null, "q=*").log()
+                .all()
+                .assertThat()
+                .body(hasXPath(format(METACARD_X_PATH, id) + "/string[@name='title']/value",
+                        is("bad_file.bin")));
+
+        // clean up
+        deleteMetacard(id);
+    }
+
+    @Test
+    public void testIngestIgnore() throws Exception {
+        // DDF-3172 bad.files and bad.file.extensions in system.properties is not being respected
+        String fileName = "thumbs.db";          // filename in ignore.files
+
+        File tmpFile = createTemporaryFile(fileName, IOUtils.toInputStream("Test"));
+
+        // ingest
+        given().multiPart(tmpFile)
+                .expect()
+                .log()
+                .headers()
+                .statusCode(HttpStatus.SC_BAD_REQUEST)
+                .when()
+                .post(REST_PATH.getUrl());
     }
 
     protected String ingestXmlFromResource(String resourceName) throws IOException {
@@ -2202,42 +2466,6 @@ public class TestCatalog extends AbstractIntegrationTest {
         return file;
     }
 
-    public class PdpProperties extends HashMap<String, Object> {
-
-        public static final String SYMBOLIC_NAME = "security-pdp-authzrealm";
-
-        public static final String FACTORY_PID = "ddf.security.pdp.realm.AuthzRealm";
-
-        public PdpProperties() {
-            this.putAll(getServiceManager().getMetatypeDefaults(SYMBOLIC_NAME, FACTORY_PID));
-        }
-
-    }
-
-    public class CatalogPolicyProperties extends HashMap<String, Object> {
-        public static final String SYMBOLIC_NAME = "catalog-security-policyplugin";
-
-        public static final String FACTORY_PID = "org.codice.ddf.catalog.security.CatalogPolicy";
-
-        public CatalogPolicyProperties() {
-            this.putAll(getServiceManager().getMetatypeDefaults(SYMBOLIC_NAME, FACTORY_PID));
-        }
-    }
-
-    public static String getGetRecordByIdProductRetrievalUrl() {
-        return "?service=CSW&version=2.0.2&request=GetRecordById&NAMESPACE=xmlns="
-                + "http://www.opengis.net/cat/csw/2.0.2&"
-                + "outputFormat=application/octet-stream&outputSchema="
-                + "http://www.iana.org/assignments/media-types/application/octet-stream&"
-                + "id=placeholder_id";
-    }
-
-    public static String getSimpleXml(String uri) {
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + getFileContent(
-                XML_RECORD_RESOURCE_PATH + "/SimpleXmlNoDecMetacard",
-                ImmutableMap.of("uri", uri));
-    }
-
     public void configureShowInvalidMetacardsReset() throws IOException {
         configureShowInvalidMetacards("false", "true", getAdminConfig());
     }
@@ -2262,11 +2490,40 @@ public class TestCatalog extends AbstractIntegrationTest {
         final Response response = when().get(buffer.toString());
         String id = XmlPath.given(response.asString())
                 .get("metacards.metacard[0].@gml:id");
-        Path path = Paths.get(METACARD_BACKUP_DIRECTORY,
+        Path path = Paths.get("data/backup/metacard",
                 id.substring(0, 3),
                 id.substring(3, 6),
-                id);
+                id + ".xml");
+
+        expect("The metacard backup file is not found: " + path.toAbsolutePath()).within(60,
+                TimeUnit.SECONDS)
+                .checkEvery(1, TimeUnit.SECONDS)
+                .until(() -> path.toFile()
+                        .exists());
+
         assertThat(path.toFile()
                 .exists(), is(true));
+    }
+
+    public class PdpProperties extends HashMap<String, Object> {
+
+        public static final String SYMBOLIC_NAME = "security-pdp-authzrealm";
+
+        public static final String FACTORY_PID = "ddf.security.pdp.realm.AuthzRealm";
+
+        public PdpProperties() {
+            this.putAll(getServiceManager().getMetatypeDefaults(SYMBOLIC_NAME, FACTORY_PID));
+        }
+
+    }
+
+    public class CatalogPolicyProperties extends HashMap<String, Object> {
+        public static final String SYMBOLIC_NAME = "catalog-security-policyplugin";
+
+        public static final String FACTORY_PID = "org.codice.ddf.catalog.security.CatalogPolicy";
+
+        public CatalogPolicyProperties() {
+            this.putAll(getServiceManager().getMetatypeDefaults(SYMBOLIC_NAME, FACTORY_PID));
+        }
     }
 }

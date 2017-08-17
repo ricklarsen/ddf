@@ -356,6 +356,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>ddf.catalog.admin</groupId>
+            <artifactId>catalog-admin-module-maplayers</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>ddf.catalog.transformer</groupId>
             <artifactId>video-input-transformer</artifactId>
             <version>${project.version}</version>
@@ -481,6 +486,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.codice.ddf.validator</groupId>
+            <artifactId>catalog-validator-metacardlocation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>ddf.catalog.transformer</groupId>
             <artifactId>catalog-transformer-overlay</artifactId>
             <version>${project.version}</version>
@@ -586,12 +596,27 @@
         </dependency>
         <dependency>
             <groupId>ddf.catalog.plugin</groupId>
-            <artifactId>catalog-plugin-metacardbackup</artifactId>
+            <artifactId>catalog-plugin-metacardbackup-storage-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>ddf.catalog.plugin</groupId>
             <artifactId>catalog-plugin-metacardbackup-filestorage</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.catalog.plugin</groupId>
+            <artifactId>catalog-plugin-metacardbackup-s3storage</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.catalog.plugin</groupId>
+            <artifactId>catalog-plugin-security-audit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.catalog.transformer</groupId>
+            <artifactId>csv-queryresponse-transformer</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

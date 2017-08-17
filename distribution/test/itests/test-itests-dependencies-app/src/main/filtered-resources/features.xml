@@ -36,7 +36,7 @@
         <bundle>mvn:ddf.test.itests/test-itests-common/${project.version}</bundle>
 
         <bundle>mvn:ddf.test.thirdparty/restito/${project.version}</bundle>
-        <feature>broker-app</feature>
+        <feature>camel-sjms</feature>
     </feature>
 
     <feature name="third-party-dependencies" version="${project.version}">
@@ -47,7 +47,7 @@
         </bundle>
         <bundle>wrap:mvn:commons-logging/commons-logging/1.2</bundle>
         <bundle>wrap:mvn:commons-net/commons-net/3.5</bundle>
-
+        <bundle>wrap:mvn:org.awaitility/awaitility/${awaitility.version}</bundle>
         <bundle>
         wrap:mvn:org.cometd.java/cometd-java-client/${cometd.version}$Export-Package=*;version=${cometd.version}
         </bundle>

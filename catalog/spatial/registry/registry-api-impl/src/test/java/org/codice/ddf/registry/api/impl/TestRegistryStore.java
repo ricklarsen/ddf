@@ -14,6 +14,7 @@
 package org.codice.ddf.registry.api.impl;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.core.Is.is;
 import static org.mockito.Matchers.any;
@@ -44,6 +45,7 @@ import org.codice.ddf.parser.xml.XmlParser;
 import org.codice.ddf.registry.common.RegistryConstants;
 import org.codice.ddf.registry.common.metacard.RegistryObjectMetacardType;
 import org.codice.ddf.registry.schemabindings.helper.MetacardMarshaller;
+import org.codice.ddf.spatial.ogc.catalog.common.AvailabilityCommand;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.Csw;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.CswAxisOrder;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.CswSourceConfiguration;
@@ -84,6 +86,8 @@ import ddf.catalog.operation.impl.SourceResponseImpl;
 import ddf.catalog.operation.impl.UpdateRequestImpl;
 import ddf.catalog.source.IngestException;
 import ddf.catalog.source.UnsupportedQueryException;
+import ddf.security.SecurityConstants;
+import ddf.security.Subject;
 import ddf.security.encryption.EncryptionService;
 import net.opengis.cat.csw.v_2_0_2.BriefRecordType;
 import net.opengis.cat.csw.v_2_0_2.CapabilitiesType;
@@ -120,6 +124,8 @@ public class TestRegistryStore {
 
     private Configuration configuration;
 
+    private Subject subject;
+
     private EncryptionService encryptionService;
 
     private List<Result> queryResults;
@@ -140,6 +146,7 @@ public class TestRegistryStore {
         encryptionService = mock(EncryptionService.class);
         configAdmin = mock(ConfigurationAdmin.class);
         configuration = mock(Configuration.class);
+        subject = mock(Subject.class);
         queryResults = new ArrayList<>();
         registryStore = spy(new RegistryStoreImpl(context,
                 cswSourceConfiguration,
@@ -171,6 +178,11 @@ public class TestRegistryStore {
 
             @Override
             public void configureCswSource() {};
+
+            @Override
+            protected Subject getSystemSubject(){
+                return subject;
+            }
 
             @Override
             BundleContext getBundleContext() {
@@ -277,6 +289,10 @@ public class TestRegistryStore {
 
         queryResults.add(new ResultImpl(getDefaultMetacard()));
         registryStore.registryInfoQuery();
+        ArgumentCaptor<QueryRequest> captor = ArgumentCaptor.forClass(QueryRequest.class);
+        verify(registryStore).query(captor.capture());
+        assertThat(captor.getValue()
+                .getPropertyValue(SecurityConstants.SECURITY_SUBJECT), notNullValue());
 
         assertThat(registryStore.getRegistryId(), is("registryId"));
     }
@@ -412,6 +428,26 @@ public class TestRegistryStore {
     }
 
     @Test
+    public void testAvailableCommandNoIdentityNode() throws Exception {
+        AvailabilityCommand command = registryStore.getAvailabilityCommand();
+        assertThat(command.isAvailable(), is(false));
+    }
+
+    @Test
+    public void testAvailableCommandQueryException() throws Exception {
+        AvailabilityCommand command = registryStore.getAvailabilityCommand();
+        queryResults = null;
+        assertThat(command.isAvailable(), is(false));
+    }
+
+    @Test
+    public void testAvailableCommand() throws Exception {
+        AvailabilityCommand command = registryStore.getAvailabilityCommand();
+        queryResults.add(new ResultImpl(getDefaultMetacard()));
+        assertThat(command.isAvailable(), is(true));
+    }
+
+    @Test
     public void testInit() throws Exception {
         RegistryStoreImpl registryStore = spy(new RegistryStoreImpl(context,
                 cswSourceConfiguration,
@@ -466,6 +502,11 @@ public class TestRegistryStore {
 
             @Override
             public void configureCswSource() {};
+
+            @Override
+            protected Subject getSystemSubject(){
+                return subject;
+            }
 
             @Override
             BundleContext getBundleContext() {

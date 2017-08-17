@@ -94,7 +94,7 @@ define([
             "change": "updateValues"
         },
         initialize: function(options) {
-            _.bindAll(this);
+            _.bindAll.apply(_, [this].concat(_.functions(this)));
             this.configuration = options.configuration;
             this.collectionArray = new Backbone.Collection();
             this.listenTo(wreqr.vent, 'refresh', this.updateValues);
@@ -205,7 +205,7 @@ define([
          * @param options
          */
         initialize: function(options) {
-            _.bindAll(this);
+            _.bindAll.apply(_, [this].concat(_.functions(this)));
             this.modelBinder = new Backbone.ModelBinder();
             this.service = options.service;
             this.listenTo(wreqr.vent, 'sync', this.bind);
@@ -222,8 +222,8 @@ define([
             this.service.get('metatype').each(function(value) {
                 if (value.get('type') === passwordType) {
                     var password = view.model.get('properties').get(value.get('id'));
-                    if (password === "" || password === null) {
-                        view.model.get('properties').set(value.get('id'), 'unmodified');
+                    if (password === null) {
+                        view.model.get('properties').set(value.get('id'), "");
                     }
                 }
             });
@@ -265,19 +265,8 @@ define([
             var view = this;
             spinner.spin(view.el);
 
-            if(this.service) {
-                if (!this.model.get('properties').has('service.pid')) {
-                    this.model.get('properties').set('service.pid', this.service.get('id'));
-                }
-
-                this.service.get('metatype').each(function(value) {
-                    if (value.get('type') === passwordType) {
-                        var password = view.model.get('properties').get(value.get('id'));
-                        if (password === "unmodified") {
-                            view.model.get('properties').set(value.get('id'), '');
-                        }
-                    }
-                });
+            if(this.service && !this.model.get('properties').has('service.pid')) {
+                this.model.get('properties').set('service.pid', this.service.get('id'));
             }
 
             this.model.save().always(function (dataOrjqXHR, textStatus, jqXHROrerrorThrown) {

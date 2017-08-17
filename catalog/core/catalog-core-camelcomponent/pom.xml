@@ -26,11 +26,6 @@
     <packaging>bundle</packaging>
     <dependencies>
         <dependency>
-            <groupId>org.springframework.osgi</groupId>
-            <artifactId>spring-osgi-core</artifactId>
-            <version>${spring-osgi.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.apache.camel</groupId>
             <artifactId>camel-core</artifactId>
         </dependency>
@@ -71,11 +66,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.springframework.osgi</groupId>
-            <artifactId>spring-osgi-mock</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>javax.ws.rs</groupId>
             <artifactId>javax.ws.rs-api</artifactId>
             <version>2.0</version>
@@ -104,6 +94,35 @@
             <groupId>com.hazelcast</groupId>
             <artifactId>hazelcast</artifactId>
         </dependency>
+        <dependency>
+            <groupId>ddf.platform.util</groupId>
+            <artifactId>util-uuidgenerator-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.jknack</groupId>
+            <artifactId>handlebars</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.abego.treelayout</groupId>
+                    <artifactId>org.abego.treelayout.core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-api-mockito</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-module-junit4-rule-agent</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -116,7 +135,9 @@
                         <Embed-Dependency>
                             catalog-core-api-impl,
                             platform-util,
-                            hazelcast
+                            hazelcast,
+                            handlebars,
+                            antlr4-runtime
                         </Embed-Dependency>
                         <Private-Package>
                             ddf.catalog.data.impl.*,
@@ -124,7 +145,9 @@
                             ddf.catalog.util.impl,
                             ddf.camel.component.catalog.converter,
                             ddf.camel.component.catalog.framework,
+                            ddf.camel.component.catalog.ingest,
                             ddf.camel.component.catalog.inputtransformer,
+                            ddf.camel.component.catalog.metacardtransformer,
                             ddf.camel.component.catalog.queryresponsetransformer,
                             ddf.camel.component.catalog.transformer
                         </Private-Package>
@@ -137,6 +160,7 @@
                             org.apache.camel*; version="2.10.0",
                             org.osgi.framework; version="1.5.0",
                             org.slf4j*; version="1.6.0",
+                            !org.abego.treelayout.*,
                             *
                         </Import-Package>
                     </instructions>

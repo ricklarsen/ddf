@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ import java.util.stream.Collectors;
 import javax.xml.bind.JAXBElement;
 
 import org.apache.commons.io.IOUtils;
+import org.codice.ddf.admin.core.api.Service;
 import org.codice.ddf.configuration.SystemBaseUrl;
 import org.codice.ddf.parser.Parser;
 import org.codice.ddf.parser.ParserConfigurator;
@@ -179,6 +181,7 @@ public class FederationAdminTest {
         when(queryResponse.getResults()).thenReturn(Collections.singletonList(new ResultImpl(mcard)));
         when(catalogFramework.query(any(QueryRequest.class))).thenReturn(queryResponse);
         catalogStoreMap.put("myDest", store);
+        setupDefaultFilterProps();
     }
 
     @Test
@@ -559,7 +562,7 @@ public class FederationAdminTest {
 
     @Test
     public void testAllRegistryInfoNoMetatypes() throws Exception {
-        List<Map<String, Object>> metatypes = new ArrayList<>();
+        List<Service> metatypes = new ArrayList<>();
         when(helper.getMetatypes()).thenReturn(metatypes);
         assertThat(federationAdmin.allRegistryInfo()
                 .size(), is(0));
@@ -567,12 +570,12 @@ public class FederationAdminTest {
 
     @Test
     public void testAllRegistryInfo() throws Exception {
-        List<Map<String, Object>> metatypes = new ArrayList<>();
+        List<Service> metatypes = new ArrayList<>();
         List<Configuration> configurations = new ArrayList<>();
         Dictionary<String, Object> props = new Hashtable<>();
         Dictionary<String, Object> propsDisabled = new Hashtable<>();
 
-        metatypes.add(new HashMap<>());
+        metatypes.add(new ServiceImpl());
 
         props.put("key1", "value1");
         propsDisabled.put("key2", "value2");
@@ -590,12 +593,12 @@ public class FederationAdminTest {
         when(configDisabled.getProperties()).thenReturn(propsDisabled);
 
         when(helper.getMetatypes()).thenReturn(metatypes);
-        when(helper.getConfigurations(any(Map.class))).thenReturn(configurations);
+        when(helper.getConfigurations(any(Service.class))).thenReturn(configurations);
         when(helper.getName(any(Configuration.class))).thenReturn("name");
         when(helper.getBundleName(any(Configuration.class))).thenReturn("bundleName");
         when(helper.getBundleId(any(Configuration.class))).thenReturn(1234L);
 
-        List<Map<String, Object>> updatedMetatypes = federationAdmin.allRegistryInfo();
+        List<Service> updatedMetatypes = federationAdmin.allRegistryInfo();
         assertThat(updatedMetatypes.size(), is(1));
         ArrayList<Map<String, Object>> configs =
                 (ArrayList<Map<String, Object>>) updatedMetatypes.get(0)
@@ -821,6 +824,9 @@ public class FederationAdminTest {
         eventProperties.put("ddf.catalog.event.metacard", mcard);
         Event event = new Event("ddf/catalog/event/UPDATED", eventProperties);
         federationAdmin.handleEvent(event);
+
+        setupDefaultFilterProps();
+
         List<Map<String, Object>> result = (List<Map<String, Object>>) federationAdmin.allRegistryMetacardsSummary()
                 .get("nodes");
         assertThat(result.size(), is(1));
@@ -835,6 +841,9 @@ public class FederationAdminTest {
         eventProperties.put("ddf.catalog.event.metacard", mcard);
         Event event = new Event("ddf/catalog/event/DELETED", eventProperties);
         federationAdmin.handleEvent(event);
+
+        setupDefaultFilterProps();
+
         List<Map<String, Object>> result = (List<Map<String, Object>>) federationAdmin.allRegistryMetacardsSummary()
                 .get("nodes");
         assertThat(result.size(), is(0));
@@ -922,6 +931,12 @@ public class FederationAdminTest {
         assertThat(result.size(), is(0));
     }
 
+    private void setupDefaultFilterProps() throws IOException {
+        Map<String, Object> filterProps = new HashMap<>();
+        filterProps.put(FederationAdmin.SUMMARY_FILTERED, new String[0]);
+        when(helper.getFilterProperties()).thenReturn(filterProps);
+    }
+
     private void performCreateEvent() throws Exception {
         List<Map<String, Object>> result =
                 (List<Map<String, Object>>) federationAdmin.allRegistryMetacardsSummary()
@@ -932,6 +947,9 @@ public class FederationAdminTest {
         eventProperties.put("ddf.catalog.event.metacard", mcard);
         Event event = new Event("ddf/catalog/event/CREATED", eventProperties);
         federationAdmin.handleEvent(event);
+
+        setupDefaultFilterProps();
+
         result = (List<Map<String, Object>>) federationAdmin.allRegistryMetacardsSummary()
                 .get("nodes");
         assertThat(result.size(), is(1));
@@ -1000,12 +1018,11 @@ public class FederationAdminTest {
         return mapConverter.convert(registryObject);
     }
 
-    private RegistryPackageType getRegistryObjectFromMap(Map<String, Object> registryMap) {
-        return typeConverter.convert(registryMap)
-                .get();
-    }
-
     private Metacard getTestMetacard() {
         return new MetacardImpl(new RegistryObjectMetacardType());
+    }
+
+    private static class ServiceImpl extends HashMap<String, Object> implements Service {
+
     }
 }

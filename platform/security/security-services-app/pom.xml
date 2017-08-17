@@ -85,14 +85,14 @@
                                 </artifact>
                                 <artifact>
                                     <file>
-                                        target/classes/etc/ddf.ldap.ldaplogin.LdapLoginConfig.config
+                                        target/classes/etc/Ldap_Login_Config-ddf.ldap.ldaplogin.LdapLoginConfig.config
                                     </file>
                                     <type>config</type>
                                     <classifier>ddf.ldap.ldaplogin.LdapLoginConfig</classifier>
                                 </artifact>
                                 <artifact>
                                     <file>
-                                        target/classes/etc/ddf.security.sts.claimsHandler.ClaimsHandlerManager.config
+                                        target/classes/etc/Claims_Handler_Manager-ddf.security.sts.claimsHandler.ClaimsHandlerManager.config
                                     </file>
                                     <type>config</type>
                                     <classifier>
@@ -331,6 +331,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>ddf.security.servlet</groupId>
+            <artifactId>security-servlet-whoami</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>ddf.security.idp</groupId>
             <artifactId>security-idp-client</artifactId>
             <version>${project.version}</version>
@@ -358,6 +363,16 @@
         <dependency>
             <groupId>ddf.platform.security</groupId>
             <artifactId>security-rest-authentication</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.security.command</groupId>
+            <artifactId>security-command-listener</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ddf.security.encryption</groupId>
+            <artifactId>security-encryption-api</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

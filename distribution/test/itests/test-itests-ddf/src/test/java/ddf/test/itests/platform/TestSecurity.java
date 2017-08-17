@@ -24,6 +24,7 @@ import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.OPEN
 import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.getOpenSearchSourceProperties;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.emptyCollectionOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasXPath;
 import static org.hamcrest.Matchers.not;
@@ -39,9 +40,13 @@ import static com.jayway.restassured.RestAssured.given;
 import static com.jayway.restassured.RestAssured.when;
 import static com.jayway.restassured.authentication.CertificateAuthSettings.certAuthSettings;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,10 +59,21 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
 import javax.ws.rs.core.MediaType;
 
 import org.apache.http.HttpStatus;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLSocketFactory;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.ssl.SSLContexts;
 import org.apache.tika.io.IOUtils;
 import org.codice.ddf.itests.common.AbstractIntegrationTest;
 import org.codice.ddf.itests.common.annotations.BeforeExam;
@@ -94,10 +110,6 @@ public class TestSecurity extends AbstractIntegrationTest {
     private static final String A_USER = "slang";
 
     private static final String B_USER = "tchalla";
-
-    private static final String C_USER = "nromanova";
-
-    private static final String D_USER = "srogers";
 
     private static final String ACCESS_GROUP_REPLACE_TOKEN = "ACCESS_GROUP_REPLACE_TOKEN";
 
@@ -478,6 +490,111 @@ public class TestSecurity extends AbstractIntegrationTest {
 
         configureRestForGuest(SDK_SOAP_CONTEXT);
         getSecurityPolicy().waitForGuestAuthReady(url);
+    }
+
+    @Test
+    public void testTLSv11IsAllowed() throws Exception {
+        String url = SERVICE_ROOT.getUrl() + "/catalog/query?q=*&src=local";
+        HttpClient client = createHttpClient("TLSv1.1", createBasicAuth("admin", "admin"));
+
+        assertBasicAuth(client, url, 200);
+    }
+
+    @Test
+    public void testTLSv12IsAllowed() throws Exception {
+        String url = SERVICE_ROOT.getUrl() + "/catalog/query?q=*&src=local";
+        HttpClient client = createHttpClient("TLSv1.2", createBasicAuth("admin", "admin"));
+
+        assertBasicAuth(client, url, 200);
+    }
+
+    @Test(expected = SSLHandshakeException.class)
+    public void testTLSv1IsDisabled() throws Exception {
+        String url = SERVICE_ROOT.getUrl() + "/catalog/query?q=*&src=local";
+        HttpClient client = createHttpClient("TLSv1");
+
+        HttpGet get = new HttpGet(url);
+        client.execute(get);
+    }
+
+    @Test
+    public void testAllowedCipherSuites() throws Exception {
+        String[] supportedCipherSuites =
+                {"TLS_DHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
+                        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
+                        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"};
+
+        List<String> systemCipherSuites = Arrays.asList(System.getProperty("https.cipherSuites")
+                .split(","));
+        assertThat("Missing a supported cipher suite",
+                systemCipherSuites,
+                equalTo(Arrays.asList(supportedCipherSuites)));
+
+        // Used to filter out cipher's that don't use our current key algorithm
+        KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+        keystore.load(new FileInputStream(KEY_STORE_PATH), "changeit".toCharArray());
+        String keyAlgorithm = keystore.getKey("localhost", "changeit".toCharArray())
+                .getAlgorithm();
+
+        String url = SERVICE_ROOT.getUrl() + "/catalog/query?q=*&src=local";
+        CredentialsProvider credentialsProvider = createBasicAuth("admin", "admin");
+        for (String cipher : supportedCipherSuites) {
+            if (cipher.contains("_" + keyAlgorithm + "_")) {
+                HttpClient client = createHttpClient("TLSv1.2",
+                        new String[] {cipher},
+                        credentialsProvider);
+                assertBasicAuth(client, url, 200);
+            }
+        }
+    }
+
+    @Test(expected = SSLHandshakeException.class)
+    public void testDisallowedCipherSuites() throws Exception {
+        String[] disallowedCipherSuites = new String[] {
+                // We can't test any cipher suite with > 128 encryption. 256 requires the unlimited strength policy to be installed
+                //                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", "TLS_RSA_WITH_AES_256_CBC_SHA256",
+                //                "TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384", "TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384",
+                //                "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256", "TLS_DHE_DSS_WITH_AES_256_CBC_SHA256",
+                //                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+                //                "TLS_RSA_WITH_AES_256_CBC_SHA", "TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA",
+                //                "TLS_ECDH_RSA_WITH_AES_256_CBC_SHA", "TLS_DHE_RSA_WITH_AES_256_CBC_SHA",
+                //                "TLS_DHE_DSS_WITH_AES_256_CBC_SHA", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+                //                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_RSA_WITH_AES_256_GCM_SHA384",
+                //                "TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384", "TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384",
+                //                "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_DHE_DSS_WITH_AES_256_GCM_SHA384",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+                "TLS_RSA_WITH_AES_128_CBC_SHA256", "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256",
+                "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_RSA_WITH_AES_128_CBC_SHA", "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA",
+                "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA",
+                "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA", "TLS_ECDHE_RSA_WITH_RC4_128_SHA",
+                "SSL_RSA_WITH_RC4_128_SHA", "TLS_ECDH_ECDSA_WITH_RC4_128_SHA",
+                "TLS_ECDH_RSA_WITH_RC4_128_SHA", "TLS_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256", "TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256", "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
+                "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", "SSL_RSA_WITH_3DES_EDE_CBC_SHA",
+                "TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA", "TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA",
+                "SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA", "SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA",
+                "SSL_RSA_WITH_RC4_128_MD5", "TLS_EMPTY_RENEGOTIATION_INFO_SCSV"};
+
+        List<String> systemCipherSuites = Arrays.asList(System.getProperty("https.cipherSuites")
+                .split(","));
+        List<String> intersection = new ArrayList<>(Arrays.asList(disallowedCipherSuites));
+        intersection.retainAll(systemCipherSuites);
+        assertThat("Supported cipher suite in disallowed ciphers",
+                intersection,
+                emptyCollectionOf(String.class));
+
+        String url = SERVICE_ROOT.getUrl() + "/catalog/query?q=*&src=local";
+        CredentialsProvider credentialsProvider = createBasicAuth("admin", "admin");
+        HttpClient client = createHttpClient("TLSv1.2",
+                disallowedCipherSuites,
+                credentialsProvider);
+
+        HttpGet get = new HttpGet(url);
+        client.execute(get);
     }
 
     @Test
@@ -1065,6 +1182,7 @@ public class TestSecurity extends AbstractIntegrationTest {
 
             //Test first operation
             Response response = given().auth()
+                    .preemptive()
                     .basic("admin", "admin")
                     .when()
                     .get(certGenPath + "/configureDemoCert/" + commonName);
@@ -1075,6 +1193,7 @@ public class TestSecurity extends AbstractIntegrationTest {
 
             //Test second operation
             response = given().auth()
+                    .preemptive()
                     .basic("admin", "admin")
                     .when()
                     .get(certGenPath + "/configureDemoCertWithDefaultHostname");
@@ -1087,10 +1206,9 @@ public class TestSecurity extends AbstractIntegrationTest {
 
             //Make sure an invalid key would return null
             assertThat(jsonPath.getString("someinvalidkey"), nullValue());
-
-            getServiceManager().stopFeature(false, featureName);
         } finally {
             restoreKeystoreFile();
+            getServiceManager().stopFeature(false, featureName);
         }
     }
 
@@ -1334,7 +1452,7 @@ public class TestSecurity extends AbstractIntegrationTest {
                     XML_RECORD_RESOURCE_PATH + "/accessGroupTokenMetacard.xml")));
             testData = testData.replace(ACCESS_GROUP_REPLACE_TOKEN, "guest");
 
-            String id = CatalogTestCommons.ingest(testData, MediaType.TEXT_XML);
+            String id = ingest(testData, MediaType.TEXT_XML);
 
             metacardAttributeSecurityFilterProperties = configureMetacardAttributeSecurityFiltering(
                     attr,
@@ -1460,5 +1578,59 @@ public class TestSecurity extends AbstractIntegrationTest {
                 .extract()
                 .response()
                 .print();
+    }
+
+    private CredentialsProvider createBasicAuth(String username, String password) {
+        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        UsernamePasswordCredentials usernamePasswordCredentials = new UsernamePasswordCredentials(
+                username,
+                password);
+        credentialsProvider.setCredentials(AuthScope.ANY, usernamePasswordCredentials);
+        return credentialsProvider;
+    }
+
+    private HttpClient createHttpClient(String protocol)
+            throws KeyManagementException, NoSuchAlgorithmException {
+        return createHttpClient(protocol, new BasicCredentialsProvider());
+    }
+
+    private HttpClient createHttpClient(String protocol, CredentialsProvider credentialsProvider)
+            throws KeyManagementException, NoSuchAlgorithmException {
+        return createHttpClient(protocol, null, credentialsProvider);
+    }
+
+    private HttpClient createHttpClient(String protocol, String[] cipherSuites,
+            CredentialsProvider credentialsProvider)
+            throws KeyManagementException, NoSuchAlgorithmException {
+        SSLContext context = SSLContexts.custom()
+                .useProtocol(protocol)
+                .build();
+
+        SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(context,
+                null,
+                cipherSuites,
+                SSLConnectionSocketFactory.getDefaultHostnameVerifier());
+
+        return HttpClients.custom()
+                .setDefaultCredentialsProvider(credentialsProvider)
+                .setSSLSocketFactory(socketFactory)
+                .build();
+    }
+
+    private void assertBasicAuth(HttpClient client, String url, int statusCode) throws Exception {
+        configureRestForBasic(SDK_SOAP_CONTEXT);
+        waitForSecurityHandlers(url);
+
+        try {
+            HttpGet get = new HttpGet(url);
+            int result = client.execute(get)
+                    .getStatusLine()
+                    .getStatusCode();
+
+            assertThat(result, equalTo(statusCode));
+        } finally {
+            configureRestForGuest(SDK_SOAP_CONTEXT);
+            getSecurityPolicy().waitForGuestAuthReady(url);
+        }
     }
 }

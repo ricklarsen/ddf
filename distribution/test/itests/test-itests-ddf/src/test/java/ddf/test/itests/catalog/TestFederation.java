@@ -14,6 +14,7 @@
 package ddf.test.itests.catalog;
 
 import static java.lang.Thread.sleep;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.codice.ddf.itests.common.AbstractIntegrationTest.DynamicUrl.INSECURE_ROOT;
 import static org.codice.ddf.itests.common.WaitCondition.expect;
@@ -26,6 +27,7 @@ import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswQuery;
 import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswSourceProperties;
 import static org.codice.ddf.itests.common.csw.CswTestCommons.getCswSubscription;
 import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.OPENSEARCH_FACTORY_PID;
+import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.getOpenSearch;
 import static org.codice.ddf.itests.common.opensearch.OpenSearchTestCommons.getOpenSearchSourceProperties;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -49,7 +51,6 @@ import static com.xebialabs.restito.semantics.Action.contentType;
 import static com.xebialabs.restito.semantics.Action.header;
 import static com.xebialabs.restito.semantics.Action.ok;
 import static com.xebialabs.restito.semantics.Action.success;
-import static com.xebialabs.restito.semantics.Condition.post;
 import static com.xebialabs.restito.semantics.Condition.withPostBodyContaining;
 
 import java.io.File;
@@ -73,7 +74,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.io.FileUtils;
@@ -117,6 +117,7 @@ import com.jayway.restassured.http.ContentType;
 import com.jayway.restassured.internal.http.Method;
 import com.jayway.restassured.path.json.JsonPath;
 import com.jayway.restassured.path.xml.XmlPath;
+import com.jayway.restassured.response.ValidatableResponse;
 import com.xebialabs.restito.semantics.Action;
 import com.xebialabs.restito.semantics.Call;
 import com.xebialabs.restito.semantics.Condition;
@@ -196,7 +197,7 @@ public class TestFederation extends AbstractIntegrationTest {
     private static final String LOCALHOST_USERNAME = "localhost";
 
     private static final String LOCALHOST_PASSWORD = "localhost";
-    
+
     private static final int CSW_SOURCE_POLL_INTERVAL = 10;
 
     private static final int MAX_DOWNLOAD_RETRY_ATTEMPTS = 3;
@@ -387,11 +388,13 @@ public class TestFederation extends AbstractIntegrationTest {
      */
     @Test
     public void testFederatedQueryByWildCardSearchPhrase() throws Exception {
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=*&format=xml&src=" + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=*",
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(hasXPath(
                         "/metacards/metacard/string[@name='" + Metacard.TITLE + "']/value[text()='"
                                 + RECORD_TITLE_1 + "']"),
@@ -409,11 +412,13 @@ public class TestFederation extends AbstractIntegrationTest {
      */
     @Test
     public void testAtomFederatedQueryByWildCardSearchPhrase() throws Exception {
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=*&format=atom&src=" + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("atom",
+                null,
+                null,
+                "q=*",
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(hasXPath("/feed/entry/title[text()='" + RECORD_TITLE_1 + "']"),
                         hasXPath("/feed/entry/title[text()='" + RECORD_TITLE_2 + "']"),
                         hasXPath("/feed/entry/content/metacard/geometry/value"));
@@ -427,12 +432,13 @@ public class TestFederation extends AbstractIntegrationTest {
      */
     @Test
     public void testFederatedQueryBySearchPhrase() throws Exception {
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=" + DEFAULT_KEYWORD + "&format=xml&src="
-                + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=" + DEFAULT_KEYWORD,
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(hasXPath(
                         "/metacards/metacard/string[@name='" + Metacard.TITLE + "']/value[text()='"
                                 + RECORD_TITLE_1 + "']"),
@@ -447,13 +453,16 @@ public class TestFederation extends AbstractIntegrationTest {
      */
     @Test
     public void testFederatedSpatial() throws Exception {
-        String queryUrl = OPENSEARCH_PATH.getUrl()
-                + "?lat=10.0&lon=30.0&radius=250000&spatialType=POINT_RADIUS" + "&format=xml&src="
-                + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "lat=10.0",
+                "lon=30.0",
+                "radius=250000",
+                "spatialType=POINT_RADIUS",
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(hasXPath(
                         "/metacards/metacard/string[@name='" + Metacard.TITLE + "']/value[text()='"
                                 + RECORD_TITLE_1 + "']"),
@@ -468,13 +477,16 @@ public class TestFederation extends AbstractIntegrationTest {
      */
     @Test
     public void testFederatedNegativeSpatial() throws Exception {
-        String queryUrl =
-                OPENSEARCH_PATH.getUrl() + "?lat=-10.0&lon=-30.0&radius=1&spatialType=POINT_RADIUS"
-                        + "&format=xml&src=" + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "lat=-10.0",
+                "lon=-30.0",
+                "radius=1",
+                "spatialType=POINT_RADIUS",
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(not(containsString(RECORD_TITLE_1)), not(containsString(RECORD_TITLE_2)));
     }
 
@@ -486,13 +498,13 @@ public class TestFederation extends AbstractIntegrationTest {
     @Test
     public void testFederatedQueryByNegativeSearchPhrase() throws Exception {
         String negativeSearchPhrase = "negative";
-        String queryUrl =
-                OPENSEARCH_PATH.getUrl() + "?q=" + negativeSearchPhrase + "&format=xml&src="
-                        + OPENSEARCH_SOURCE_ID;
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=" + negativeSearchPhrase,
+                "src=" + OPENSEARCH_SOURCE_ID);
 
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(not(containsString(RECORD_TITLE_1)), not(containsString(RECORD_TITLE_2)));
     }
 
@@ -868,13 +880,13 @@ public class TestFederation extends AbstractIntegrationTest {
 
     @Test
     public void testOpensearchToCswSourceToCswEndpointQuerywithCswRecordXml() throws Exception {
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=" + DEFAULT_KEYWORD,
+                "src=" + CSW_SOURCE_ID);
 
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=" + DEFAULT_KEYWORD + "&format=xml&src="
-                + CSW_SOURCE_ID;
-
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(containsString(RECORD_TITLE_1),
                         containsString(RECORD_TITLE_2),
                         hasXPath("/metacards/metacard/string[@name='"
@@ -884,13 +896,13 @@ public class TestFederation extends AbstractIntegrationTest {
 
     @Test
     public void testOpensearchToCswSourceToCswEndpointQuerywithMetacardXml() throws Exception {
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=" + DEFAULT_KEYWORD,
+                "src=" + CSW_SOURCE_WITH_METACARD_XML_ID);
 
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=" + DEFAULT_KEYWORD + "&format=xml&src="
-                + CSW_SOURCE_WITH_METACARD_XML_ID;
-
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(containsString(RECORD_TITLE_1),
                         containsString(RECORD_TITLE_2),
                         hasXPath("/metacards/metacard/string[@name='"
@@ -900,13 +912,13 @@ public class TestFederation extends AbstractIntegrationTest {
 
     @Test
     public void testOpensearchToGmdSourceToGmdEndpointQuery() throws Exception {
+        ValidatableResponse response = getOpenSearch("xml",
+                null,
+                null,
+                "q=" + RECORD_TITLE_1,
+                "src=" + GMD_SOURCE_ID);
 
-        String queryUrl = OPENSEARCH_PATH.getUrl() + "?q=" + RECORD_TITLE_1 + "&format=xml&src="
-                + GMD_SOURCE_ID;
-
-        when().get(queryUrl)
-                .then()
-                .assertThat()
+        response.assertThat()
                 .body(containsString(RECORD_TITLE_1),
                         hasXPath(
                                 "/metacards/metacard/stringxml/value/MD_Metadata/fileIdentifier/CharacterString",
@@ -926,6 +938,7 @@ public class TestFederation extends AbstractIntegrationTest {
         */
 
         given().auth()
+                .preemptive()
                 .basic(ADMIN_USERNAME, ADMIN_PASSWORD)
                 .when()
                 .get(ADMIN_ALL_SOURCES_PATH.getUrl())
@@ -940,6 +953,7 @@ public class TestFederation extends AbstractIntegrationTest {
     public void testFederatedSourceStatus() {
         // Find and test OpenSearch Federated Source
         String json = given().auth()
+                .preemptive()
                 .basic(ADMIN_USERNAME, ADMIN_PASSWORD)
                 .when()
                 .get(ADMIN_ALL_SOURCES_PATH.getUrl())
@@ -1247,7 +1261,7 @@ public class TestFederation extends AbstractIntegrationTest {
         Action response = new ChunkedContent.ChunkedContentBuilder(resourceData).build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1306,6 +1320,8 @@ public class TestFederation extends AbstractIntegrationTest {
      * @throws Exception
      */
     @Test
+    //TODO DDF-3077 Fix unstable cometd itests in TestFederation
+    @ConditionalIgnore(condition = SkipUnstableTest.class)
     public void testRetrievalReliablility() throws Exception {
         getSecurityPolicy().configureWebContextPolicy(null,
                 "/=SAML|basic,/solr=SAML|PKI|basic",
@@ -1323,7 +1339,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1447,7 +1463,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1487,6 +1503,8 @@ public class TestFederation extends AbstractIntegrationTest {
      * @throws Exception
      */
     @Test
+    //TODO DDF-3077 Fix unstable cometd itests in TestFederation
+    @ConditionalIgnore(condition = SkipUnstableTest.class)
     public void testRetrievalReliabilityFails() throws Exception {
         cometDClient = setupCometDClient(Arrays.asList(NOTIFICATIONS_CHANNEL, ACTIVITIES_CHANNEL));
 
@@ -1499,7 +1517,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1595,8 +1613,8 @@ public class TestFederation extends AbstractIntegrationTest {
         String srcRequest = "{\"src\":\"" + OPENSEARCH_SOURCE_ID
                 + "\",\"start\":1,\"count\":250,\"cql\":\"anyText ILIKE '*'\",\"sort\":\"modified:desc\"}";
 
-        expect("Waiting for metacard cache to clear").checkEvery(1, TimeUnit.SECONDS)
-                .within(20, TimeUnit.SECONDS)
+        expect("Waiting for metacard cache to clear").checkEvery(1, SECONDS)
+                .within(20, SECONDS)
                 .until(() -> getMetacardCacheSize(OPENSEARCH_SOURCE_ID) == 0);
 
         //This query will put the ingested metacards from the BeforeExam method into the cache
@@ -1610,8 +1628,8 @@ public class TestFederation extends AbstractIntegrationTest {
                 .statusCode(200);
 
         //CacheBulkProcessor could take up to 10 seconds to flush the cached results into solr
-        expect("Waiting for metacards to be written to cache").checkEvery(1, TimeUnit.SECONDS)
-                .within(20, TimeUnit.SECONDS)
+        expect("Waiting for metacards to be written to cache").checkEvery(1, SECONDS)
+                .within(20, SECONDS)
                 .until(() -> getMetacardCacheSize(OPENSEARCH_SOURCE_ID) > 0);
     }
 
@@ -1648,7 +1666,7 @@ public class TestFederation extends AbstractIntegrationTest {
         Action response = new ChunkedContent.ChunkedContentBuilder(resourceData).build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1725,7 +1743,7 @@ public class TestFederation extends AbstractIntegrationTest {
         Action response = new ChunkedContent.ChunkedContentBuilder(resourceData).build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1748,7 +1766,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .contentType("text/plain")
                 .body(is(resourceData));
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1789,7 +1807,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -1852,21 +1870,16 @@ public class TestFederation extends AbstractIntegrationTest {
                                     .contains(filename)));
 
             found = activities.stream()
-                    .anyMatch(activity -> {
-                        if (activity.toString()
-                                .contains(messageToFind) && activity.toString()
-                                .contains(filename)) {
-                            return true;
-                        }
-                        return false;
-                    });
-
+                    .anyMatch(activity -> activity.toString()
+                            .contains(messageToFind) && activity.toString()
+                            .contains(filename));
         }
-
         return found;
     }
 
     @Test
+    //TODO DDF-3077 Fix unstable cometd itests in TestFederation
+    @ConditionalIgnore(condition = SkipUnstableTest.class)
     public void testCancelDownload() throws Exception {
         getCatalogBundle().setupCaching(true);
         getSecurityPolicy().configureWebContextPolicy(null,
@@ -1884,7 +1897,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -2032,7 +2045,7 @@ public class TestFederation extends AbstractIntegrationTest {
         Action response1 = new ChunkedContent.ChunkedContentBuilder(resourceData1).build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId1))
                 .then(ok(),
@@ -2051,7 +2064,7 @@ public class TestFederation extends AbstractIntegrationTest {
         Action response2 = new ChunkedContent.ChunkedContentBuilder(resourceData2).build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId2))
                 .then(ok(),
@@ -2281,7 +2294,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .fail(NO_RETRIES)
                 .build();
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -2304,6 +2317,8 @@ public class TestFederation extends AbstractIntegrationTest {
     }
 
     @Test
+    //TODO DDF-3077 Fix unstable cometd itests in TestFederation
+    @ConditionalIgnore(condition = SkipUnstableTest.class)
     public void testTwoUsersSameProductRetrySuccess() throws Exception {
 
         String filename = "product2.txt";
@@ -2341,6 +2356,8 @@ public class TestFederation extends AbstractIntegrationTest {
     }
 
     @Test
+    //TODO DDF-3077 Fix unstable cometd itests in TestFederation
+    @ConditionalIgnore(condition = SkipUnstableTest.class)
     public void testTwoUsersSameProductRetryFailure() throws Exception {
 
         String filename = "product2.txt";
@@ -2426,7 +2443,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -2470,7 +2487,7 @@ public class TestFederation extends AbstractIntegrationTest {
                 .build();
 
         cswServer.whenHttp()
-                .match(post("/services/csw"),
+                .match(Condition.post("/services/csw"),
                         withPostBodyContaining("GetRecords"),
                         withPostBodyContaining(metacardId))
                 .then(ok(),
@@ -2548,8 +2565,7 @@ public class TestFederation extends AbstractIntegrationTest {
         boolean isAllEventsReceived = false;
         boolean isUnexpectedEventReceived = false;
 
-        while (!isAllEventsReceived && !isUnexpectedEventReceived
-                && millis < TimeUnit.MINUTES.toMillis(2)) {
+        while (!isAllEventsReceived && !isUnexpectedEventReceived && millis < MINUTES.toMillis(2)) {
 
             Set<String> foundIds;
 

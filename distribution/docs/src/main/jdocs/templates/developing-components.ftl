@@ -1,5 +1,8 @@
+== Developing ${branding} Components
 
-<#list developingComponents as developingComponent>
+Create custom implementations of ${branding} components.
+
+<#list developingComponents?sort_by("order") as developingComponent>
 <#if (developingComponent.status == "published")>
 
 === ${developingComponent.title}

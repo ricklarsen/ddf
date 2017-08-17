@@ -13,14 +13,21 @@
  */
 package org.codice.ddf.registry.federationadmin.impl;
 
+import static org.codice.ddf.admin.core.api.ConfigurationAdmin.NO_MATCH_FILTER;
+
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Dictionary;
+import java.util.HashMap;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.codice.ddf.admin.core.api.Service;
 import org.codice.ddf.registry.api.internal.RegistryStore;
-import org.codice.ddf.ui.admin.api.ConfigurationAdminExt;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
@@ -28,24 +35,39 @@ import org.osgi.framework.InvalidSyntaxException;
 import org.osgi.framework.ServiceReference;
 import org.osgi.service.cm.Configuration;
 import org.osgi.service.cm.ConfigurationAdmin;
-import org.osgi.service.metatype.ObjectClassDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import ddf.catalog.service.ConfiguredService;
 import ddf.catalog.source.Source;
 
 public class AdminHelper {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdminHelper.class);
+
     private static final String REGISTRY_FILTER = String.format(
             "(|(%s=*Registry*Store*)(%s=*registry*store*))",
-            ConfigurationAdmin.SERVICE_FACTORYPID, ConfigurationAdmin.SERVICE_FACTORYPID);
+            ConfigurationAdmin.SERVICE_FACTORYPID,
+            ConfigurationAdmin.SERVICE_FACTORYPID);
 
-    private static final String MAP_ENTRY_ID = "id";
+    private static final String REGISTRY_POLICY_PID =
+            "org.codice.ddf.registry.policy.RegistryPolicyPlugin";
+
+    private static final String REGISTRY_ID_KEY = "registryEntryIds";
+
+    private static final String DISABLE_REGISTRY_KEY = "registryDisabled";
+
+    private static final String WHITE_LIST_KEY = "whiteList";
 
     private static final String DISABLED = "_disabled";
 
     private final ConfigurationAdmin configurationAdmin;
 
-    public AdminHelper(ConfigurationAdmin configurationAdmin) {
+    private final org.codice.ddf.admin.core.api.ConfigurationAdmin configAdmin;
+
+    public AdminHelper(org.codice.ddf.admin.core.api.ConfigurationAdmin configAdmin,
+            ConfigurationAdmin configurationAdmin) {
         this.configurationAdmin = configurationAdmin;
+        this.configAdmin = configAdmin;
     }
 
     private BundleContext getBundleContext() {
@@ -56,7 +78,7 @@ public class AdminHelper {
         return null;
     }
 
-    public List<Source> getRegistrySources() throws org.osgi.framework.InvalidSyntaxException {
+    public List<Source> getRegistrySources() throws InvalidSyntaxException {
         List<ServiceReference<? extends Source>> refs = new ArrayList<>();
         refs.addAll(getBundleContext().getServiceReferences(RegistryStore.class, null));
         return refs.stream()
@@ -64,22 +86,20 @@ public class AdminHelper {
                 .collect(Collectors.toList());
     }
 
-    public List<Map<String, Object>> getMetatypes() {
-        ConfigurationAdminExt configAdminExt = new ConfigurationAdminExt(configurationAdmin);
-        return configAdminExt.addMetaTypeNamesToMap(configAdminExt.getFactoryPidObjectClasses(),
-                REGISTRY_FILTER,
-                ConfigurationAdmin.SERVICE_FACTORYPID);
+    public List<Service> getMetatypes() {
+        return configAdmin.listServices(REGISTRY_FILTER, NO_MATCH_FILTER);
     }
 
-    public List getConfigurations(Map<String, Object> metatype)
+    public List<Configuration> getConfigurations(Service metatype)
             throws InvalidSyntaxException, IOException {
-        return org.apache.shiro.util.CollectionUtils.asList(configurationAdmin.listConfigurations(
-                String.format("(|(%s=%s)(%s=%s%s))",
-                        ConfigurationAdmin.SERVICE_FACTORYPID,
-                        metatype.get(MAP_ENTRY_ID),
-                        ConfigurationAdmin.SERVICE_FACTORYPID,
-                        metatype.get(MAP_ENTRY_ID),
-                        DISABLED)));
+        Configuration[] configurations = configurationAdmin.listConfigurations(String.format(
+                "(|(%s=%s)(%s=%s%s))",
+                ConfigurationAdmin.SERVICE_FACTORYPID,
+                metatype.getId(),
+                ConfigurationAdmin.SERVICE_FACTORYPID,
+                metatype.getId(),
+                DISABLED));
+        return configurations == null ? new ArrayList<>() : Arrays.asList(configurations);
     }
 
     public Configuration getConfiguration(ConfiguredService cs) throws IOException {
@@ -87,8 +107,7 @@ public class AdminHelper {
     }
 
     public String getBundleName(Configuration config) {
-        ConfigurationAdminExt configAdminExt = new ConfigurationAdminExt(configurationAdmin);
-        return configAdminExt.getName(getBundleContext().getBundle(config.getBundleLocation()));
+        return configAdmin.getName(getBundleContext().getBundle(config.getBundleLocation()));
     }
 
     public long getBundleId(Configuration config) {
@@ -97,8 +116,56 @@ public class AdminHelper {
     }
 
     public String getName(Configuration config) {
-        ConfigurationAdminExt configAdminExt = new ConfigurationAdminExt(configurationAdmin);
-        return ((ObjectClassDefinition) configAdminExt.getFactoryPidObjectClasses()
-                .get(config.getFactoryPid())).getName();
+        return configAdmin.getObjectClassDefinition(config)
+                .getName();
+    }
+
+    Map<String, Object> getFilterProperties() throws IOException {
+        Map<String, Object> props = new HashMap<>();
+        Dictionary<String, Object> configProps = configurationAdmin.getConfiguration(
+                REGISTRY_POLICY_PID,
+                null)
+                .getProperties();
+        Map<String, Object> configMap = new HashMap<>();
+        if (configProps == null) {
+            configProps = new Hashtable<>();
+        }
+
+        props.put(FederationAdmin.CLIENT_MODE,
+                Optional.ofNullable(configProps.get(DISABLE_REGISTRY_KEY))
+                        .orElse(false));
+        props.put(FederationAdmin.FILTER_INVERTED,
+                Optional.ofNullable(configProps.get(WHITE_LIST_KEY))
+                        .orElse(false));
+        props.put(FederationAdmin.SUMMARY_FILTERED,
+                Optional.ofNullable(configProps.get(REGISTRY_ID_KEY))
+                        .orElse(new String[0]));
+        return props;
+    }
+
+    void setFilteredNodeList(List<String> filterList) {
+        setFilterProperty(REGISTRY_ID_KEY, filterList.toArray(new String[0]));
+    }
+
+    void setFilterInverted(boolean inverted) {
+        setFilterProperty(WHITE_LIST_KEY, inverted);
+    }
+
+    void setClientMode(boolean clientMode) {
+        setFilterProperty(DISABLE_REGISTRY_KEY, clientMode);
+    }
+
+    private void setFilterProperty(String key, Object value) {
+        try {
+            Configuration config = configurationAdmin.getConfiguration(REGISTRY_POLICY_PID, null);
+            Dictionary<String, Object> props = config.getProperties();
+            if (props == null) {
+                props = new Hashtable<>();
+            }
+            props.put(key, value);
+            config.update(props);
+        } catch (IOException e) {
+            LOGGER.debug("Error setting filter property {} to {}", key, value);
+        }
     }
 }

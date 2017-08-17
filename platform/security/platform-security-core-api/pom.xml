@@ -128,6 +128,7 @@
         <dependency>
             <groupId>org.apache.karaf.jaas</groupId>
             <artifactId>org.apache.karaf.jaas.boot</artifactId>
+            <version>${karaf.version}</version>
         </dependency>
         <dependency>
             <groupId>ddf.lib</groupId>
@@ -137,6 +138,16 @@
         <dependency>
             <groupId>ddf.platform.util</groupId>
             <artifactId>platform-util</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ops4j.pax.logging</groupId>
+            <artifactId>pax-logging-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.codice.ddf</groupId>
+            <artifactId>alerts</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>
@@ -188,7 +199,8 @@
                             httpcore,
                             google-http-client,
                             opensaml-soap-impl,
-                            common-system
+                            common-system,
+                            alerts
                         </Embed-Dependency>
                         <Export-Package>
                             ddf.security*;version=${project.version}

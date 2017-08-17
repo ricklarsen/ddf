@@ -14,6 +14,7 @@
 package org.codice.ddf.registry.api.impl;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,6 +28,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
 import org.codice.ddf.cxf.SecureCxfClientFactory;
 import org.codice.ddf.parser.ParserException;
 import org.codice.ddf.registry.api.internal.RegistryStore;
@@ -34,6 +36,7 @@ import org.codice.ddf.registry.common.RegistryConstants;
 import org.codice.ddf.registry.common.metacard.RegistryObjectMetacardType;
 import org.codice.ddf.registry.common.metacard.RegistryUtility;
 import org.codice.ddf.registry.schemabindings.helper.MetacardMarshaller;
+import org.codice.ddf.spatial.ogc.catalog.common.AvailabilityCommand;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.CswSourceConfiguration;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.source.AbstractCswStore;
 import org.opengis.filter.Filter;
@@ -71,8 +74,8 @@ import ddf.catalog.operation.impl.QueryImpl;
 import ddf.catalog.operation.impl.QueryRequestImpl;
 import ddf.catalog.operation.impl.SourceResponseImpl;
 import ddf.catalog.source.IngestException;
-import ddf.catalog.source.SourceMonitor;
 import ddf.catalog.source.UnsupportedQueryException;
+import ddf.security.SecurityConstants;
 import ddf.security.encryption.EncryptionService;
 import oasis.names.tc.ebxml_regrep.xsd.rim._3.ExternalIdentifierType;
 import oasis.names.tc.ebxml_regrep.xsd.rim._3.RegistryPackageType;
@@ -80,6 +83,8 @@ import oasis.names.tc.ebxml_regrep.xsd.rim._3.RegistryPackageType;
 public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RegistryStoreImpl.class);
+
+    private static final String IDENTITY_NODE_ERROR_MSG = "Unable to retrieve identity node of remote registry {}. Check to make sure the CSW endpoint supports registry operations and has a populated identity node.";
 
     public static final String PUSH_ALLOWED_PROPERTY = "pushAllowed";
 
@@ -173,11 +178,14 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
                 .is()
                 .equalTo()
                 .text(RegistryConstants.REGISTRY_TAG_INTERNAL);
+        Map<String, Serializable> queryProps = new HashMap<>();
+        queryProps.put(SecurityConstants.SECURITY_SUBJECT,
+                request.getPropertyValue(SecurityConstants.SECURITY_SUBJECT));
         QueryImpl query = new QueryImpl(filterBuilder.allOf(tagFilter,
                 filterBuilder.attribute(RegistryObjectMetacardType.REGISTRY_LOCAL_NODE)
                         .empty(),
                 filterBuilder.anyOf(regIdFilters)));
-        QueryRequest queryRequest = new QueryRequestImpl(query);
+        QueryRequest queryRequest = new QueryRequestImpl(query, queryProps);
         try {
             SourceResponse queryResponse = super.query(queryRequest);
 
@@ -192,7 +200,8 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
             List<Metacard> allMetacards = new ArrayList<>(responseMap.values());
             if (CollectionUtils.isNotEmpty(metacardsToCreate)) {
                 CreateResponse createResponse =
-                        super.create(new CreateRequestImpl(metacardsToCreate));
+                        super.create(new CreateRequestImpl(metacardsToCreate,
+                                request.getProperties()));
                 allMetacards.addAll(createResponse.getCreatedMetacards());
             }
             return new CreateResponseImpl(request, request.getProperties(), allMetacards);
@@ -318,28 +327,12 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
         this.metacardMarshaller = metacardMarshaller;
     }
 
-    public void init() {
-
-        SourceMonitor registrySourceMonitor = new SourceMonitor() {
-            @Override
-            public void setAvailable() {
-                try {
-                    registryInfoQuery();
-                } catch (UnsupportedQueryException e) {
-                    LOGGER.debug("Unable to query registry configurations, ", e);
-                }
-            }
-
-            @Override
-            public void setUnavailable() {
-            }
-        };
-
-        addSourceMonitor(registrySourceMonitor);
-        super.init();
+    @Override
+    protected AvailabilityCommand getAvailabilityCommand() {
+        return new RegistryAvailabilityCommand();
     }
 
-    void registryInfoQuery() throws UnsupportedQueryException {
+    boolean registryInfoQuery() throws UnsupportedQueryException {
         List<Filter> filters = new ArrayList<>();
         filters.add(filterBuilder.attribute(Metacard.TAGS)
                 .is()
@@ -348,8 +341,11 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
         filters.add(filterBuilder.not(filterBuilder.attribute(RegistryObjectMetacardType.REGISTRY_IDENTITY_NODE)
                 .empty()));
         Filter filter = filterBuilder.allOf(filters);
+
+        Map<String, Serializable> queryProps = new HashMap<>();
+        queryProps.put(SecurityConstants.SECURITY_SUBJECT, getSystemSubject());
         Query newQuery = new QueryImpl(filter);
-        QueryRequest queryRequest = new QueryRequestImpl(newQuery);
+        QueryRequest queryRequest = new QueryRequestImpl(newQuery, queryProps);
         SourceResponse identityMetacard = query(queryRequest);
         if (identityMetacard.getResults()
                 .size() > 0) {
@@ -360,9 +356,10 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
             registryId = RegistryUtility.getRegistryId(identityMetacard.getResults()
                     .get(0)
                     .getMetacard());
-            updateConfiguration(metacardTitle);
-        }
 
+            return updateConfiguration(metacardTitle);
+        }
+        return false;
     }
 
     private String getConnectionType(Bundle bundle, String pid) {
@@ -396,10 +393,10 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
         this.metaTypeService = metaTypeService;
     }
 
-    private void updateConfiguration(String metacardTitle) {
-        if (metacardTitle == null) {
-            LOGGER.debug("Unable to update registry configurations. No metacard title.");
-            return;
+    private boolean updateConfiguration(String metacardTitle) {
+        if (metacardTitle == null || StringUtils.isBlank(registryId)) {
+            LOGGER.debug("Unable to update registry configurations. No metacard title or registry id.");
+            return false;
         }
         String currentPid = getConfigurationPid();
         try {
@@ -413,8 +410,9 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
             currentConfig.update(currentProperties);
         } catch (IOException e) {
             LOGGER.debug("Unable to update registry configurations, ", e);
+            return false;
         }
-
+        return true;
     }
 
     private String getFactoryPid() {
@@ -464,4 +462,36 @@ public class RegistryStoreImpl extends AbstractCswStore implements RegistryStore
         return registryId;
     }
 
+    private class RegistryAvailabilityCommand implements AvailabilityCommand {
+
+        @Override
+        public boolean isAvailable() {
+            LOGGER.debug("Checking availability for source {} ", cswSourceConfiguration.getId());
+            boolean oldAvailability = RegistryStoreImpl.this.isAvailable();
+            boolean newAvailability;
+            // Simple "ping" to ensure the source is responding
+            newAvailability = (getCapabilities() != null);
+            if (oldAvailability != newAvailability) {
+                // If the source becomes available, configure it.
+                if (newAvailability) {
+                    configureCswSource();
+                    try {
+                        // Make sure the endpoint supports registry operations
+                        newAvailability = registryInfoQuery();
+                        if (!newAvailability) {
+                            LOGGER.warn(IDENTITY_NODE_ERROR_MSG,
+                                    cswSourceConfiguration.getCswUrl());
+                        }
+                    } catch (UnsupportedQueryException uqe) {
+                        newAvailability = false;
+                        LOGGER.warn(IDENTITY_NODE_ERROR_MSG,
+                                cswSourceConfiguration.getCswUrl(),
+                                uqe);
+                    }
+                }
+                availabilityChanged(newAvailability);
+            }
+            return newAvailability;
+        }
+    }
 }

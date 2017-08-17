@@ -31,6 +31,16 @@
         <param-value>/</param-value>
     </context-param>
 
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Certificate Editor</web-resource-name>
+            <url-pattern>/*</url-pattern>
+        </web-resource-collection>
+        <user-data-constraint>
+            <transport-guarantee>CONFIDENTIAL</transport-guarantee>
+        </user-data-constraint>
+    </security-constraint>
+
     <servlet>
         <servlet-name>ErrorServlet</servlet-name>
         <servlet-class>org.codice.ddf.platform.error.servlet.ErrorServlet</servlet-class>
@@ -95,6 +105,15 @@
         <error-code>504</error-code>
         <location>/ErrorServlet</location>
     </error-page>
+
+    <filter>
+        <filter-name>GzipFilter</filter-name>
+        <filter-class>org.eclipse.jetty.servlets.GzipFilter</filter-class>
+    </filter>
+    <filter-mapping>
+        <filter-name>GzipFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
 
 </web-app>
 

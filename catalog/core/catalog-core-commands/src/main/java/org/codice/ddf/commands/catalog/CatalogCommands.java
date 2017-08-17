@@ -72,19 +72,19 @@ public abstract class CatalogCommands extends SubjectCommands {
     @Option(name = "--provider", required = false, aliases = {"-p",
             "-provider"}, multiValued = false, description = "Interacts with the Provider directly "
             + "instead of the framework. NOTE: This option picks the first Provider.")
-    boolean isProvider = false;
+    protected boolean isProvider = false;
 
     @Reference
-    CatalogProvider catalogProvider;
+    protected CatalogProvider catalogProvider;
 
     @Reference
-    CatalogFramework catalogFramework;
+    protected CatalogFramework catalogFramework;
 
     @Reference
-    BundleContext bundleContext;
+    protected BundleContext bundleContext;
 
     @Reference
-    FilterBuilder filterBuilder;
+    protected FilterBuilder filterBuilder;
 
     protected SolrCacheMBean getCacheProxy()
             throws IOException, MalformedObjectNameException, InstanceNotFoundException {
@@ -117,25 +117,24 @@ public abstract class CatalogCommands extends SubjectCommands {
 
     protected StringBuilder getUserInputModifiable() throws IOException {
         int in;
-        StringBuilder builder = new StringBuilder();
+        StringBuilder input = new StringBuilder();
         while ((in = session.getKeyboard()
-                .read()) != '\r') {
-            if (in == 127) {
-                if (builder.length() > 0) {
-                    builder.deleteCharAt(builder.length() - 1);
+                .read()) != '\r' && in != '\n') {
+            if (in == 127 || in == 8) {
+                if (input.length() > 0) {
+                    input.deleteCharAt(input.length() - 1);
+                    console.print((char) 8);
+                    console.print(' ');
+                    console.print((char) 8);
                 }
-                console.print((char) 8);
-                console.print(' ');
-                console.print((char) 8);
-
             } else {
-                builder.append((char) in);
+                input.append((char) in);
                 console.print((char) in);
             }
             console.flush();
         }
         console.println();
-        return builder;
+        return input;
     }
 
     protected String getFormattedDuration(Instant start) {

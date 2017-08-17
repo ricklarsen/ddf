@@ -47,11 +47,11 @@ import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
 import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.commons.lang.StringUtils;
+import org.codice.ddf.platform.util.XMLUtils;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.Csw;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.CswConstants;
 import org.codice.ddf.spatial.ogc.csw.catalog.common.CswException;
@@ -226,6 +226,8 @@ public class CswEndpoint implements Csw {
             GmdConstants.GMD_METACARD_TYPE_NAME,
             CswConstants.EBRIM_RECORD);
 
+    private static final XMLUtils XML_UTILS = XMLUtils.getInstance();
+
     private static Map<String, Element> documentElements = new HashMap<>();
 
     private final TransformerManager mimeTypeTransformerManager;
@@ -337,7 +339,7 @@ public class CswEndpoint implements Csw {
 
         List<QName> types = typeStringToQNames(request.getTypeName(), namespacePrefixToUriMappings);
 
-        return buildDescribeRecordResponseFromTypes(types, request.getVersion());
+        return buildDescribeRecordResponseFromTypes(types);
     }
 
     @Override
@@ -353,8 +355,7 @@ public class CswEndpoint implements Csw {
         validator.validateOutputFormat(request.getOutputFormat(), mimeTypeTransformerManager);
         validator.validateSchemaLanguage(request.getSchemaLanguage());
 
-        return buildDescribeRecordResponseFromTypes(request.getTypeName(),
-                CswConstants.VERSION_2_0_2);
+        return buildDescribeRecordResponseFromTypes(request.getTypeName());
     }
 
     @Override
@@ -550,6 +551,7 @@ public class CswEndpoint implements Csw {
                 numInserted += createResponse.getCreatedMetacards()
                         .size();
             } catch (IngestException | SourceUnavailableException e) {
+                LOGGER.debug("Unable to insert record(s)", e);
                 throw new CswException("Unable to insert record(s).",
                         CswConstants.TRANSACTION_FAILED,
                         insertAction.getHandle());
@@ -565,6 +567,7 @@ public class CswEndpoint implements Csw {
                 numUpdated += updateRecords(updateAction);
             } catch (CswException | FederationException | IngestException |
                     SourceUnavailableException | UnsupportedQueryException e) {
+                LOGGER.debug("Unable to update record(s)", e);
                 throw new CswException("Unable to update record(s).",
                         CswConstants.TRANSACTION_FAILED,
                         updateAction.getHandle());
@@ -580,6 +583,7 @@ public class CswEndpoint implements Csw {
                 numDeleted += deleteRecords(deleteAction);
             } catch (CswException | FederationException | IngestException |
                     SourceUnavailableException | UnsupportedQueryException e) {
+                LOGGER.debug("Unable to delete record(s)", e);
                 throw new CswException("Unable to delete record(s).",
                         CswConstants.TRANSACTION_FAILED,
                         deleteAction.getHandle());
@@ -850,8 +854,7 @@ public class CswEndpoint implements Csw {
         return namespaceUri;
     }
 
-    private DescribeRecordResponseType buildDescribeRecordResponseFromTypes(List<QName> types,
-            String version) throws CswException {
+    private DescribeRecordResponseType buildDescribeRecordResponseFromTypes(List<QName> types) throws CswException {
 
         validator.validateFullyQualifiedTypes(types);
 
@@ -979,17 +982,9 @@ public class CswEndpoint implements Csw {
             }
         }
 
-        DocumentBuilderFactory docBuilderFactory = DocumentBuilderFactory.newInstance();
-        docBuilderFactory.setNamespaceAware(true);
-        try {
-            docBuilderFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-dtd-grammar", false);
-            docBuilderFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (ParserConfigurationException e) {
-            LOGGER.debug("Unable to configure features on document builder.", e);
-        }
         Document doc;
         try {
-            DocumentBuilder docBuilder = docBuilderFactory.newDocumentBuilder();
+            DocumentBuilder docBuilder = XML_UTILS.getSecureDocumentBuilder(true);
             doc = docBuilder.parse(recordUrl.openStream());
         } catch (ParserConfigurationException | SAXException | IOException e) {
             throw new CswException(e);

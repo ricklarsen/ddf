@@ -17,14 +17,18 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.felix.gogo.commands.Command;
+import org.apache.karaf.shell.api.action.Command;
+import org.apache.karaf.shell.api.action.lifecycle.Reference;
+import org.apache.karaf.shell.api.action.lifecycle.Service;
+import org.apache.karaf.shell.api.console.Session;
 import org.codice.ddf.persistence.PersistenceException;
 
-import jline.console.ConsoleReader;
-
-@Command(scope = "store", name = "delete",
-        description = "Deletes entries from the persistence store.")
+@Service
+@Command(scope = "store", name = "delete", description = "Deletes entries from the persistence store.")
 public class StoreDeleteCommand extends AbstractStoreCommand {
+
+    @Reference
+    Session session;
 
     @Override
     public void storeCommand() throws PersistenceException {
@@ -33,10 +37,9 @@ public class StoreDeleteCommand extends AbstractStoreCommand {
         if (!results.isEmpty()) {
             console.println(results.size() + " results matched cql.");
             String message = "\nAre you sure you want to delete? (yes/no): ";
-            ConsoleReader reader = (ConsoleReader) session.get(".jline.reader");
             while (true) {
                 try {
-                    String confirmation = reader.readLine(message);
+                    String confirmation = session.readLine(message, null);
                     if ("yes".equalsIgnoreCase(confirmation.toLowerCase())) {
                         int numDeleted = persistentStore.delete(type, cql);
                         console.println("Successfully deleted " + numDeleted + " items.");

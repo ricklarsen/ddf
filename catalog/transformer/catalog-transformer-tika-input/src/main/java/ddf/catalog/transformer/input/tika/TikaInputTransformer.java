@@ -19,9 +19,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.StringReader;
-import java.io.StringWriter;
-import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -49,6 +47,7 @@ import javax.xml.transform.stream.StreamSource;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.Validate;
 import org.apache.tika.io.CloseShieldInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.mime.MediaType;
@@ -60,6 +59,7 @@ import org.apache.tika.sax.TeeContentHandler;
 import org.apache.tika.sax.ToTextContentHandler;
 import org.apache.tika.sax.ToXMLContentHandler;
 import org.codice.ddf.platform.util.TemporaryFileBackedOutputStream;
+import org.codice.ddf.platform.util.XMLUtils;
 import org.imgscalr.Scalr;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
@@ -73,12 +73,12 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLFilterImpl;
-import org.xml.sax.helpers.XMLReaderFactory;
 
 import com.github.jaiimageio.impl.plugins.tiff.TIFFImageReaderSpi;
 import com.github.jaiimageio.jpeg2000.impl.J2KImageReaderSpi;
 
 import ddf.catalog.content.operation.ContentMetadataExtractor;
+import ddf.catalog.content.operation.MetadataExtractor;
 import ddf.catalog.data.AttributeDescriptor;
 import ddf.catalog.data.Metacard;
 import ddf.catalog.data.MetacardType;
@@ -94,172 +94,6 @@ import ddf.catalog.util.impl.ServiceComparator;
 public class TikaInputTransformer implements InputTransformer {
     private static final Logger LOGGER = LoggerFactory.getLogger(TikaInputTransformer.class);
 
-    private Templates templates = null;
-
-    private Map<ServiceReference, ContentMetadataExtractor> contentMetadataExtractors =
-            Collections.synchronizedMap(new TreeMap<>(new ServiceComparator()));
-
-    private MetacardType fallbackExcelMetacardType = null;
-
-    private MetacardType fallbackJpegMetacardType = null;
-
-    private MetacardType fallbackMp4MetacardType = null;
-
-    private MetacardType fallbackMpegMetacardType = null;
-
-    private MetacardType fallbackOfficeDocMetacardType = null;
-
-    private MetacardType fallbackPdfMetacardType = null;
-
-    private MetacardType fallbackPowerpointMetacardType = null;
-
-    // commonTikaMetacardType represents the MetacardType to be used when an ingested product's mime
-    // type does not match a mime type that is supported by the mimeTypeToMetacardTypeMap
-    private MetacardType commonTikaMetacardType = null;
-
-    public void setCommonTikaMetacardType(MetacardType metacardType) {
-        this.commonTikaMetacardType = metacardType;
-    }
-
-    public void setFallbackExcelMetacardType(MetacardType metacardType) {
-        this.fallbackExcelMetacardType = metacardType;
-    }
-
-    public void setFallbackJpegMetacardType(MetacardType metacardType) {
-        this.fallbackJpegMetacardType = metacardType;
-    }
-
-    public void setFallbackMp4MetacardType(MetacardType metacardType) {
-        this.fallbackMp4MetacardType = metacardType;
-    }
-
-    public void setFallbackMpegMetacardType(MetacardType metacardType) {
-        this.fallbackMpegMetacardType = metacardType;
-    }
-
-    public void setFallbackOfficeDocMetacardType(MetacardType metacardType) {
-        this.fallbackOfficeDocMetacardType = metacardType;
-    }
-
-    public void setFallbackPdfMetacardType(MetacardType metacardType) {
-        this.fallbackPdfMetacardType = metacardType;
-    }
-
-    public void setFallbackPowerpointMetacardType(MetacardType metacardType) {
-        this.fallbackPowerpointMetacardType = metacardType;
-    }
-
-    private Map<String, MetacardType> mimeTypeToMetacardTypeMap = new HashMap<>();
-
-    /**
-     * Populates the mimeTypeToMetacardMap for use in determining the {@link MetacardType} that
-     * corresponds to an ingested product's mimeType.
-     */
-
-    public void populateMimeTypeMap() {
-        //.pptm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.presentation.macroenabled.12",
-                fallbackPowerpointMetacardType);
-        //.ppt, .ppz, .pps, .pot, .ppa
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_POWERPOINT.toString(), fallbackPowerpointMetacardType);
-        //.pptx, .thmx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                fallbackPowerpointMetacardType);
-        // .ppsx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
-                fallbackPowerpointMetacardType);
-        //.potx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.presentationml.template",
-                fallbackPowerpointMetacardType);
-        //.ppam
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.addin.macroenabled.12",
-                fallbackPowerpointMetacardType);
-        //.ppsm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.slideshow.macroenabled.12",
-                fallbackPowerpointMetacardType);
-        //.sldm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.slide.macroenabled.12",
-                fallbackPowerpointMetacardType);
-        //.potm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.template.macroenabled.12",
-                fallbackPowerpointMetacardType);
-        //.doc, .dot
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_WORD.toString(), fallbackOfficeDocMetacardType);
-        //.docx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                fallbackOfficeDocMetacardType);
-        //.doc, .dot, allias for "application/msword"
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word", fallbackOfficeDocMetacardType);
-        //.docm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word.document.macroenabled.12",
-                fallbackOfficeDocMetacardType);
-        //.dotm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word.template.macroenabled.12",
-                fallbackOfficeDocMetacardType);
-        //.dotx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
-                fallbackOfficeDocMetacardType);
-        //.pdf
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.PDF.toString(), fallbackPdfMetacardType);
-        //.mpeg, .mpg, .mpe, .m1v, .m2v
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MPEG_VIDEO.toString(), fallbackMpegMetacardType);
-        //.mpga, .mp2, .mp2a, .mp3, .m2a, .m3a
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MPEG_AUDIO.toString(), fallbackMpegMetacardType);
-        //.mp4 is defined for mpeg-4 content but is not directly correlated with this mime type
-        mimeTypeToMetacardTypeMap.put("audio/mpeg4-generic", fallbackMpegMetacardType);
-        //.mp4 is defined for mpeg-4 content but is not directly correlated with this mime type
-        mimeTypeToMetacardTypeMap.put("video/mpeg4-generic", fallbackMpegMetacardType);
-        //.mp4s
-        mimeTypeToMetacardTypeMap.put("application/mp4", fallbackMp4MetacardType);
-        //.mp4a, .m4a,.m4b
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MP4_AUDIO.toString(), fallbackMp4MetacardType);
-        //.mp4, .mp4v, .mpg4
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MP4_VIDEO.toString(), fallbackMp4MetacardType);
-        //.jpg, .jpeg, .jpe, .jif, .jfif, .jfi
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.JPEG.toString(), fallbackJpegMetacardType);
-        //.jpgv is defined for jpeg content but is not directly correlated with this mime type
-        mimeTypeToMetacardTypeMap.put("video/jpeg", fallbackJpegMetacardType);
-        //.jpgv is defined for jpeg2000 content but is not directly correlated with this mime type
-        mimeTypeToMetacardTypeMap.put("video/jpeg2000", fallbackJpegMetacardType);
-        //.xls, .xlm, .xla, .xlc, .xlt, .xlw, .xll, .xld
-        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_EXCEL.toString(), fallbackExcelMetacardType);
-        //.xlsx
-        mimeTypeToMetacardTypeMap.put(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                fallbackExcelMetacardType);
-        //.xlsm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.sheet.macroenabled.12",
-                fallbackExcelMetacardType);
-        //.xlsb
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.sheet.binary.macroenabled.12",
-                fallbackExcelMetacardType);
-        //.xlam
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.addin.macroenabled.12",
-                fallbackExcelMetacardType);
-        //.xltm
-        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.template.macroenabled.12",
-                fallbackExcelMetacardType);
-
-    }
-
-    /**
-     * Determines which {@link MetacardType} should be used to create a metacard for an input
-     * file of a given mime type
-     *
-     * @param mimeType the String representing the mime type of the file
-     * @return a {@link MetacardType} that should be used to create a {@link Metacard} for the
-     * given mimeType
-     * Returns null if no {@link MetacardType} was found that matched the given mime type.
-     */
-    public MetacardType getMetacardTypeFromMimeType(String mimeType) {
-        return mimeTypeToMetacardTypeMap.get(mimeType);
-    }
-
     private static final Map<com.google.common.net.MediaType, String>
             SPECIFIC_MIME_TYPE_DATA_TYPE_MAP;
 
@@ -267,6 +101,8 @@ public class TikaInputTransformer implements InputTransformer {
             FALLBACK_MIME_TYPE_DATA_TYPE_MAP;
 
     private static final String OVERALL_FALLBACK_DATA_TYPE = "Dataset";
+
+    private static final XMLUtils XML_UTILS = XMLUtils.getInstance();
 
     static {
         SPECIFIC_MIME_TYPE_DATA_TYPE_MAP = new HashMap<>();
@@ -308,28 +144,313 @@ public class TikaInputTransformer implements InputTransformer {
                 "Sound");
     }
 
-    public void addContentMetadataExtractors(
+    private Templates templates = null;
+
+    private Map<ServiceReference, ContentMetadataExtractor> contentExtractors =
+            Collections.synchronizedMap(new TreeMap<>(new ServiceComparator()));
+
+    private Map<ServiceReference, MetadataExtractor> metadataExtractors =
+            Collections.synchronizedMap(new TreeMap<>(new ServiceComparator()));
+
+    private MetacardType fallbackExcelMetacardType = null;
+
+    private MetacardType fallbackJpegMetacardType = null;
+
+    private MetacardType fallbackMp4MetacardType = null;
+
+    private MetacardType fallbackMpegMetacardType = null;
+
+    private MetacardType fallbackOfficeDocMetacardType = null;
+
+    private MetacardType fallbackPdfMetacardType = null;
+
+    private MetacardType fallbackPowerpointMetacardType = null;
+
+    // commonTikaMetacardType represents the MetacardType to be used when an ingested product's mime
+    // type does not match a mime type that is supported by the mimeTypeToMetacardTypeMap
+    private MetacardType commonTikaMetacardType = null;
+
+    private Map<String, MetacardType> mimeTypeToMetacardTypeMap = new HashMap<>();
+
+    private boolean useResourceTitleAsTitle;
+
+    public TikaInputTransformer(BundleContext bundleContext, MetacardType metacardType) {
+        this.commonTikaMetacardType = metacardType;
+        classLoaderAndBundleContextSetup(bundleContext);
+    }
+
+    @SuppressWarnings("unused")
+    public void setCommonTikaMetacardType(MetacardType metacardType) {
+        this.commonTikaMetacardType = metacardType;
+    }
+
+    public void setFallbackExcelMetacardType(MetacardType metacardType) {
+        this.fallbackExcelMetacardType = metacardType;
+    }
+
+    public void setFallbackJpegMetacardType(MetacardType metacardType) {
+        this.fallbackJpegMetacardType = metacardType;
+    }
+
+    public void setFallbackMp4MetacardType(MetacardType metacardType) {
+        this.fallbackMp4MetacardType = metacardType;
+    }
+
+    public void setFallbackMpegMetacardType(MetacardType metacardType) {
+        this.fallbackMpegMetacardType = metacardType;
+    }
+
+    public void setFallbackOfficeDocMetacardType(MetacardType metacardType) {
+        this.fallbackOfficeDocMetacardType = metacardType;
+    }
+
+    public void setFallbackPdfMetacardType(MetacardType metacardType) {
+        this.fallbackPdfMetacardType = metacardType;
+    }
+
+    public void setFallbackPowerpointMetacardType(MetacardType metacardType) {
+        this.fallbackPowerpointMetacardType = metacardType;
+    }
+
+    /**
+     * Populates the mimeTypeToMetacardMap for use in determining the {@link MetacardType} that
+     * corresponds to an ingested product's mimeType.
+     */
+
+    public void populateMimeTypeMap() {
+        //.pptm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.presentation.macroenabled.12",
+                fallbackPowerpointMetacardType);
+        //.ppt, .ppz, .pps, .pot, .ppa
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_POWERPOINT.toString(),
+                fallbackPowerpointMetacardType);
+        //.pptx, .thmx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                fallbackPowerpointMetacardType);
+        // .ppsx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+                fallbackPowerpointMetacardType);
+        //.potx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.presentationml.template",
+                fallbackPowerpointMetacardType);
+        //.ppam
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.addin.macroenabled.12",
+                fallbackPowerpointMetacardType);
+        //.ppsm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.slideshow.macroenabled.12",
+                fallbackPowerpointMetacardType);
+        //.sldm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.slide.macroenabled.12",
+                fallbackPowerpointMetacardType);
+        //.potm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-powerpoint.template.macroenabled.12",
+                fallbackPowerpointMetacardType);
+        //.doc, .dot
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_WORD.toString(),
+                fallbackOfficeDocMetacardType);
+        //.docx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                fallbackOfficeDocMetacardType);
+        //.doc, .dot, allias for "application/msword"
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word", fallbackOfficeDocMetacardType);
+        //.docm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word.document.macroenabled.12",
+                fallbackOfficeDocMetacardType);
+        //.dotm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-word.template.macroenabled.12",
+                fallbackOfficeDocMetacardType);
+        //.dotx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+                fallbackOfficeDocMetacardType);
+        //.pdf
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.PDF.toString(),
+                fallbackPdfMetacardType);
+        //.mpeg, .mpg, .mpe, .m1v, .m2v
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MPEG_VIDEO.toString(),
+                fallbackMpegMetacardType);
+        //.mpga, .mp2, .mp2a, .mp3, .m2a, .m3a
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MPEG_AUDIO.toString(),
+                fallbackMpegMetacardType);
+        //.mp4 is defined for mpeg-4 content but is not directly correlated with this mime type
+        mimeTypeToMetacardTypeMap.put("audio/mpeg4-generic", fallbackMpegMetacardType);
+        //.mp4 is defined for mpeg-4 content but is not directly correlated with this mime type
+        mimeTypeToMetacardTypeMap.put("video/mpeg4-generic", fallbackMpegMetacardType);
+        //.mp4s
+        mimeTypeToMetacardTypeMap.put("application/mp4", fallbackMp4MetacardType);
+        //.mp4a, .m4a,.m4b
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MP4_AUDIO.toString(),
+                fallbackMp4MetacardType);
+        //.mp4, .mp4v, .mpg4
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MP4_VIDEO.toString(),
+                fallbackMp4MetacardType);
+        //.jpg, .jpeg, .jpe, .jif, .jfif, .jfi
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.JPEG.toString(),
+                fallbackJpegMetacardType);
+        //.jpgv is defined for jpeg content but is not directly correlated with this mime type
+        mimeTypeToMetacardTypeMap.put("video/jpeg", fallbackJpegMetacardType);
+        //.jpgv is defined for jpeg2000 content but is not directly correlated with this mime type
+        mimeTypeToMetacardTypeMap.put("video/jpeg2000", fallbackJpegMetacardType);
+        //.xls, .xlm, .xla, .xlc, .xlt, .xlw, .xll, .xld
+        mimeTypeToMetacardTypeMap.put(com.google.common.net.MediaType.MICROSOFT_EXCEL.toString(),
+                fallbackExcelMetacardType);
+        //.xlsx
+        mimeTypeToMetacardTypeMap.put(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                fallbackExcelMetacardType);
+        //.xlsm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.sheet.macroenabled.12",
+                fallbackExcelMetacardType);
+        //.xlsb
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.sheet.binary.macroenabled.12",
+                fallbackExcelMetacardType);
+        //.xlam
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.addin.macroenabled.12",
+                fallbackExcelMetacardType);
+        //.xltm
+        mimeTypeToMetacardTypeMap.put("application/vnd.ms-excel.template.macroenabled.12",
+                fallbackExcelMetacardType);
+    }
+
+    /**
+     * Determines which {@link MetacardType} should be used to create a metacard for an input
+     * file of a given mime type
+     *
+     * @param mimeType the String representing the mime type of the file
+     * @return a {@link Optional} of {@link MetacardType} that should be used to create a
+     * {@link Metacard} for the given mimeType. Returns empty {@link Optional} if
+     * no {@link MetacardType}  matched the given mime type.
+     */
+    public Optional<MetacardType> getMetacardTypeFromMimeType(String mimeType) {
+        return Optional.ofNullable(mimeTypeToMetacardTypeMap.get(mimeType));
+    }
+
+    @Override
+    public Metacard transform(InputStream input) throws IOException, CatalogTransformerException {
+        return transform(input, null);
+    }
+
+    @Override
+    public Metacard transform(InputStream input, String id)
+            throws IOException, CatalogTransformerException {
+        LOGGER.debug("Transforming input stream using Tika.");
+        long bytes;
+        if (input == null) {
+            throw new CatalogTransformerException("Cannot transform null input.");
+        }
+
+        try (TemporaryFileBackedOutputStream fileBackedOutputStream = new TemporaryFileBackedOutputStream()) {
+            try {
+                bytes = IOUtils.copyLarge(input, fileBackedOutputStream);
+            } catch (IOException e) {
+                throw new CatalogTransformerException("Could not copy bytes of content message.",
+                        e);
+            }
+
+            Parser parser = new AutoDetectParser();
+            Metadata metadata;
+            String metadataText;
+            ToTextContentHandler textContentHandler = null;
+            Metacard metacard;
+            String contentType;
+            try (TemporaryFileBackedOutputStream textContentHandlerOutStream = new TemporaryFileBackedOutputStream()) {
+                try (TemporaryFileBackedOutputStream xmlContentHandlerOutStream = new TemporaryFileBackedOutputStream()) {
+                    ToXMLContentHandler xmlContentHandler = new ToXMLContentHandler(
+                            xmlContentHandlerOutStream,
+                            StandardCharsets.UTF_8.toString());
+                    ContentHandler contentHandler;
+                    if (!contentExtractors.isEmpty()) {
+                        textContentHandler = new ToTextContentHandler(textContentHandlerOutStream,
+                                StandardCharsets.UTF_8.toString());
+                        contentHandler = new TeeContentHandler(xmlContentHandler,
+                                textContentHandler);
+                    } else {
+                        contentHandler = xmlContentHandler;
+                    }
+
+                    TikaMetadataExtractor tikaMetadataExtractor = new TikaMetadataExtractor(parser,
+                            contentHandler);
+
+                    try (InputStream inputStreamCopy = fileBackedOutputStream.asByteSource()
+                            .openStream()) {
+                        metadata = tikaMetadataExtractor.parseMetadata(inputStreamCopy,
+                                new ParseContext());
+                    }
+
+                    if (templates != null) {
+                        metadataText = transformToXml(xmlContentHandlerOutStream);
+                    } else {
+                        metadataText = xmlContentHandler.toString();
+                    }
+                }
+
+                contentType = metadata.get(Metadata.CONTENT_TYPE);
+                MetacardType metacardType = mergeAttributes(getMetacardType(contentType));
+                metacard = MetacardCreator.createMetacard(metadata,
+                        id,
+                        metadataText,
+                        metacardType,
+                        useResourceTitleAsTitle);
+
+                if (textContentHandler != null && !contentExtractors.isEmpty()) {
+                    for (ContentMetadataExtractor contentMetadataExtractor : contentExtractors.values()) {
+                        try (InputStream contentStream = textContentHandlerOutStream.asByteSource()
+                                .openStream()) {
+                            contentMetadataExtractor.process(contentStream, metacard);
+                        }
+                    }
+                }
+            }
+
+            for (MetadataExtractor metadataExtractor : metadataExtractors.values()) {
+                metadataExtractor.process(metadataText, metacard);
+            }
+
+            enrichMetacard(fileBackedOutputStream, contentType, bytes, metacard);
+
+            LOGGER.debug("Finished transforming input stream using Tika.");
+            return metacard;
+        }
+    }
+
+    public void addContentMetadataExtractor(
             ServiceReference<ContentMetadataExtractor> contentMetadataExtractorRef) {
         Bundle bundle = getBundle();
         if (bundle != null) {
             ContentMetadataExtractor cme = bundle.getBundleContext()
                     .getService(contentMetadataExtractorRef);
-            contentMetadataExtractors.put(contentMetadataExtractorRef, cme);
+            contentExtractors.put(contentMetadataExtractorRef, cme);
         }
     }
 
-    Bundle getBundle() {
-        return FrameworkUtil.getBundle(TikaInputTransformer.class);
+    public void addMetadataExtractor(ServiceReference<MetadataExtractor> metadataExtractorRef) {
+        Bundle bundle = getBundle();
+        if (bundle != null) {
+            MetadataExtractor cme = bundle.getBundleContext()
+                    .getService(metadataExtractorRef);
+            metadataExtractors.put(metadataExtractorRef, cme);
+        }
     }
 
     public void removeContentMetadataExtractor(
             ServiceReference<ContentMetadataExtractor> contentMetadataExtractorRef) {
-        contentMetadataExtractors.remove(contentMetadataExtractorRef);
+        contentExtractors.remove(contentMetadataExtractorRef);
     }
 
-    public TikaInputTransformer(BundleContext bundleContext, MetacardType metacardType) {
-        this.commonTikaMetacardType = metacardType;
-        classLoaderAndBundleContextSetup(bundleContext);
+    public void removeMetadataExtractor(ServiceReference<MetadataExtractor> metadataExtractorRef) {
+        metadataExtractors.remove(metadataExtractorRef);
+    }
+
+    /**
+     * @param useResourceTitleAsTitle must be non-null
+     */
+    public void setUseResourceTitleAsTitle(Boolean useResourceTitleAsTitle) {
+        Validate.notNull(useResourceTitleAsTitle, "useResourceTitleAsTitle must be non-null");
+        this.useResourceTitleAsTitle = useResourceTitleAsTitle;
     }
 
     private void classLoaderAndBundleContextSetup(BundleContext bundleContext) {
@@ -364,97 +485,51 @@ public class TikaInputTransformer implements InputTransformer {
                 .registerServiceProvider(new TIFFImageReaderSpi());
     }
 
-    @Override
-    public Metacard transform(InputStream input) throws IOException, CatalogTransformerException {
-        return transform(input, null);
+    private MetacardType getMetacardType(String contentType) {
+        return metadataExtractors.values()
+                .stream()
+                .filter(e -> e.canProcess(contentType))
+                .findFirst()
+                .map(e -> e.getMetacardType(contentType))
+                .orElse(getMetacardTypeFromMimeType(contentType).orElse(commonTikaMetacardType));
     }
 
-    @Override
-    public Metacard transform(InputStream input, String id)
-            throws IOException, CatalogTransformerException {
-        LOGGER.debug("Transforming input stream using Tika.");
+    protected MetacardType mergeAttributes(MetacardType metacardType) {
+        MetacardType returnObject = metacardType;
+        Set<AttributeDescriptor> additionalAttributes = contentExtractors.values()
+                .stream()
+                .map(ContentMetadataExtractor::getMetacardAttributes)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toSet());
 
-        if (input == null) {
-            throw new CatalogTransformerException("Cannot transform null input.");
+        // Guard against empty collection. If the collection is empty,
+        // the MetacardTypeImpl constructor throws an exception.
+        if (!additionalAttributes.isEmpty()) {
+            returnObject = new MetacardTypeImpl(metacardType.getName(),
+                    metacardType,
+                    additionalAttributes);
         }
 
-        try (TemporaryFileBackedOutputStream fileBackedOutputStream = new TemporaryFileBackedOutputStream()) {
-            try {
-                IOUtils.copy(input, fileBackedOutputStream);
-            } catch (IOException e) {
-                throw new CatalogTransformerException("Could not copy bytes of content message.",
-                        e);
-            }
+        return returnObject;
+    }
 
-            Parser parser = new AutoDetectParser();
-            ToXMLContentHandler xmlContentHandler = new ToXMLContentHandler();
-            ToTextContentHandler textContentHandler = null;
-            ContentHandler contentHandler;
-            if (!contentMetadataExtractors.isEmpty()) {
-                textContentHandler = new ToTextContentHandler();
-                contentHandler = new TeeContentHandler(xmlContentHandler, textContentHandler);
-            } else {
-                contentHandler = xmlContentHandler;
-            }
+    protected void enrichMetacard(TemporaryFileBackedOutputStream fileBackedOutputStream,
+            String metacardContentType, long bytes, Metacard metacard) throws IOException {
 
-            TikaMetadataExtractor tikaMetadataExtractor = new TikaMetadataExtractor(parser,
-                    contentHandler);
+        if (StringUtils.isNotBlank(metacardContentType)) {
+            metacard.setAttribute(new AttributeImpl(Core.DATATYPE,
+                    getDatatype(metacardContentType)));
+        }
 
-            Metadata metadata;
+        if (StringUtils.startsWith(metacardContentType, "image")) {
             try (InputStream inputStreamCopy = fileBackedOutputStream.asByteSource()
                     .openStream()) {
-                metadata = tikaMetadataExtractor.parseMetadata(inputStreamCopy, new ParseContext());
+                createThumbnail(inputStreamCopy, metacard);
             }
-
-            String metadataText = xmlContentHandler.toString();
-            if (templates != null) {
-                metadataText = transformToXml(metadataText);
-            }
-            String metacardContentType = metadata.get(Metadata.CONTENT_TYPE);
-            MetacardType metacardType = getMetacardTypeFromMimeType(metacardContentType);
-            if (metacardType == null) {
-                metacardType = commonTikaMetacardType;
-            }
-            Metacard metacard;
-            if (textContentHandler != null) {
-                String plainText = textContentHandler.toString();
-
-                Set<AttributeDescriptor> attributes = contentMetadataExtractors.values()
-                        .stream()
-                        .map(ContentMetadataExtractor::getMetacardAttributes)
-                        .flatMap(Collection::stream)
-                        .collect(Collectors.toSet());
-                MetacardTypeImpl extendedMetacardType = new MetacardTypeImpl(metacardType.getName(),
-                        metacardType,
-                        attributes);
-
-                metacard = MetacardCreator.createMetacard(metadata,
-                        id,
-                        metadataText,
-                        extendedMetacardType);
-
-                for (ContentMetadataExtractor contentMetadataExtractor : contentMetadataExtractors.values()) {
-                    contentMetadataExtractor.process(plainText, metacard);
-                }
-            } else {
-                metacard = MetacardCreator.createMetacard(metadata, id, metadataText, metacardType);
-            }
-
-            if (StringUtils.isNotBlank(metacardContentType)) {
-                metacard.setAttribute(new AttributeImpl(Core.DATATYPE,
-                        getDatatype(metacardContentType)));
-            }
-
-            if (StringUtils.startsWith(metacardContentType, "image")) {
-                try (InputStream inputStreamCopy = fileBackedOutputStream.asByteSource()
-                        .openStream()) {
-                    createThumbnail(inputStreamCopy, metacard);
-                }
-            }
-
-            LOGGER.debug("Finished transforming input stream using Tika.");
-            return metacard;
         }
+
+        metacard.setAttribute(new AttributeImpl(Core.RESOURCE_SIZE, String.valueOf(bytes)));
+
     }
 
     @Nullable
@@ -495,9 +570,7 @@ public class TikaInputTransformer implements InputTransformer {
     private void registerService(BundleContext bundleContext) {
         LOGGER.debug("Registering {} as an osgi service.",
                 TikaInputTransformer.class.getSimpleName());
-        bundleContext.registerService(ddf.catalog.transform.InputTransformer.class,
-                this,
-                getServiceProperties());
+        bundleContext.registerService(InputTransformer.class, this, getServiceProperties());
     }
 
     private Hashtable<String, Object> getServiceProperties() {
@@ -568,31 +641,41 @@ public class TikaInputTransformer implements InputTransformer {
         }
     }
 
-    private String transformToXml(String xhtml) {
+    private String transformToXml(TemporaryFileBackedOutputStream xhtml) {
         LOGGER.debug("Transforming xhtml to xml.");
 
         XMLReader xmlReader = null;
         try {
-            XMLReader xmlParser = XMLReaderFactory.createXMLReader();
-            xmlParser.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            xmlParser.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            xmlParser.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd",
-                    false);
+            XMLReader xmlParser = XML_UTILS.getSecureXmlParser();
             xmlReader = new XMLFilterImpl(xmlParser);
         } catch (SAXException e) {
             LOGGER.debug(e.getMessage(), e);
         }
         if (xmlReader != null) {
-            try {
-                Writer xml = new StringWriter();
+            try (TemporaryFileBackedOutputStream xmlOutStream = new TemporaryFileBackedOutputStream();
+                    InputStream xhtmlInStream = xhtml.asByteSource()
+                            .openStream()) {
                 Transformer transformer = templates.newTransformer();
-                transformer.transform(new SAXSource(xmlReader,
-                        new InputSource(new StringReader(xhtml))), new StreamResult(xml));
-                return xml.toString();
-            } catch (TransformerException e) {
+                transformer.transform(new SAXSource(xmlReader, new InputSource(xhtmlInStream)),
+                        new StreamResult(xmlOutStream));
+                //we should not be doing this and should be returning the stream instead
+                try (InputStream resultStream = xmlOutStream.asByteSource()
+                        .openStream()) {
+                    return IOUtils.toString(resultStream, StandardCharsets.UTF_8);
+                }
+            } catch (IOException | TransformerException e) {
                 LOGGER.debug("Unable to transform metadata from XHTML to XML.", e);
             }
         }
-        return xhtml;
+        try (InputStream xhtmlStream = xhtml.asByteSource().openStream()) {
+            return IOUtils.toString(xhtmlStream, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            LOGGER.debug("Unable to read data from XHTML stream.", e);
+        }
+        return "";
+    }
+
+    Bundle getBundle() {
+        return FrameworkUtil.getBundle(TikaInputTransformer.class);
     }
 }

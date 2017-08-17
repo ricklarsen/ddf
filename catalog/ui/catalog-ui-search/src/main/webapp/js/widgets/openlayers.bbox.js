@@ -100,13 +100,13 @@ define([
 
             drawBorderedRectangle: function (rectangle) {
 
+                if(this.vectorLayer) {
+                    this.map.removeLayer(this.vectorLayer);
+                }
+
                 if (!rectangle) {
                     // handles case where model changes to empty vars and we don't want to draw anymore
                     return;
-                }
-
-                if(this.vectorLayer) {
-                    this.map.removeLayer(this.vectorLayer);
                 }
 
                 this.billboard = new ol.Feature({
@@ -189,6 +189,7 @@ define([
         Draw.Controller = Marionette.Controller.extend({
             enabled: maptype.is2d(),
             initialize: function (options) {
+
                 this.map = options.map;
                 this.notificationEl = options.notificationEl;
 
@@ -241,23 +242,27 @@ define([
             showBox: function(model) {
                 if (this.enabled) {
                     var bboxModel = model || new Draw.BboxModel();
-                        /*view = new Draw.BboxView(
-                            {
-                                map: this.map,
-                                model: bboxModel
-                            });*/
 
                     var existingView = this.getViewForModel(model);
                     if (existingView) {
                         existingView.stop();
                         existingView.destroyPrimitive();
+                        existingView.updatePrimitive(model);
+                    } else {
+                        var view = new Draw.BboxView(
+                            {
+                                map: this.map,
+                                model: bboxModel
+                            });
+                        view.updatePrimitive(model);
+                        this.addView(view);
                     }
-                    existingView.updatePrimitive(model);
 
                     return bboxModel;
                 }
             },
             draw: function (model) {
+
                 if (this.enabled) {
                     var bboxModel = model || new Draw.BboxModel();
                     var view = new Draw.BboxView(

@@ -15,14 +15,10 @@ package ddf.catalog.plugin.groomer.metacard;
 
 import java.io.Serializable;
 import java.net.URI;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Map.Entry;
-import java.util.UUID;
-import java.util.regex.Pattern;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
+import org.codice.ddf.platform.util.uuidgenerator.UuidGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,18 +40,19 @@ public class StandardMetacardGroomerPlugin extends AbstractMetacardGroomerPlugin
     private static final Logger LOGGER =
             LoggerFactory.getLogger(StandardMetacardGroomerPlugin.class);
 
-    private Pattern hexPattern = Pattern.compile("^[0-9A-Fa-f]+$");
+    private UuidGenerator uuidGenerator;
+
+    public void setUuidGenerator(UuidGenerator uuidGenerator) {
+        this.uuidGenerator = uuidGenerator;
+    }
 
     protected void applyCreatedOperationRules(CreateRequest createRequest, Metacard aMetacard,
             Date now) {
         LOGGER.debug("Applying standard rules on CreateRequest");
         if ((aMetacard.getResourceURI() != null
-                && !isCatalogResourceUri(aMetacard.getResourceURI())) || !isCorrectFormatId(
+                && !isCatalogResourceUri(aMetacard.getResourceURI())) || !uuidGenerator.validateUuid(
                 aMetacard.getId())) {
-            aMetacard.setAttribute(new AttributeImpl(Metacard.ID,
-                    UUID.randomUUID()
-                            .toString()
-                            .replaceAll("-", "")));
+            aMetacard.setAttribute(new AttributeImpl(Metacard.ID, uuidGenerator.generateUuid()));
         }
 
         if (aMetacard.getCreatedDate() == null) {
@@ -70,11 +67,6 @@ public class StandardMetacardGroomerPlugin extends AbstractMetacardGroomerPlugin
             aMetacard.setAttribute(new AttributeImpl(Metacard.EFFECTIVE, now));
         }
 
-        if (CollectionUtils.isEmpty(aMetacard.getTags())) {
-            aMetacard.setAttribute(new AttributeImpl(Metacard.TAGS,
-                    Collections.singletonList(Metacard.DEFAULT_TAG)));
-        }
-
         if (isDateAttributeEmpty(aMetacard, Core.METACARD_CREATED)) {
             aMetacard.setAttribute(new AttributeImpl(Core.METACARD_CREATED, now));
             logMetacardAttributeUpdate(aMetacard, Core.METACARD_CREATED, now);
@@ -87,11 +79,6 @@ public class StandardMetacardGroomerPlugin extends AbstractMetacardGroomerPlugin
 
     private boolean isCatalogResourceUri(URI uri) {
         return uri != null && ContentItem.CONTENT_SCHEME.equals(uri.getScheme());
-    }
-
-    private boolean isCorrectFormatId(String id) {
-        return !StringUtils.isEmpty(id) && id.length() == 32 && hexPattern.matcher(id)
-                .matches();
     }
 
     protected void applyUpdateOperationRules(UpdateRequest updateRequest,
@@ -133,11 +120,6 @@ public class StandardMetacardGroomerPlugin extends AbstractMetacardGroomerPlugin
 
         if (aMetacard.getEffectiveDate() == null) {
             aMetacard.setAttribute(new AttributeImpl(Metacard.EFFECTIVE, now));
-        }
-
-        if (CollectionUtils.isEmpty(aMetacard.getTags())) {
-            aMetacard.setAttribute(new AttributeImpl(Metacard.TAGS,
-                    Collections.singletonList(Metacard.DEFAULT_TAG)));
         }
 
         // upon an update operation, the metacard modified time should be updated

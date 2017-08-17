@@ -50,6 +50,7 @@ import ddf.catalog.data.Attribute;
 import ddf.catalog.data.Metacard;
 import ddf.catalog.data.Result;
 import ddf.catalog.data.impl.AttributeImpl;
+import ddf.catalog.data.types.Core;
 import ddf.catalog.federation.FederationException;
 import ddf.catalog.history.Historian;
 import ddf.catalog.impl.FrameworkProperties;
@@ -79,6 +80,7 @@ import ddf.catalog.source.IngestException;
 import ddf.catalog.source.InternalIngestException;
 import ddf.catalog.source.SourceUnavailableException;
 import ddf.catalog.util.impl.Requests;
+import ddf.security.SecurityConstants;
 
 /**
  * Support class for update delegate operations for the {@code CatalogFrameworkImpl}.
@@ -597,30 +599,29 @@ public class UpdateOperations {
     }
 
     private UpdateRequest populateMetacards(UpdateRequest updateRequest) throws IngestException {
-        final String attributeName = updateRequest.getAttributeName();
-
         QueryRequestImpl queryRequest = createQueryRequest(updateRequest);
-        QueryResponse query;
+        QueryResponse queryResponse;
         try {
-            query = queryOperations.doQuery(queryRequest,
+            queryResponse = queryOperations.doQuery(queryRequest,
                     frameworkProperties.getFederationStrategy());
         } catch (FederationException e) {
             LOGGER.debug("Unable to complete query for updated metacards.", e);
             throw new IngestException("Exception during runtime while performing update");
         }
 
-        if (!foundAllUpdateRequestMetacards(updateRequest, query)) {
-            logFailedQueryInfo(updateRequest, query);
+        if (!foundAllUpdateRequestMetacards(updateRequest, queryResponse)) {
+            logFailedQueryInfo(updateRequest, queryResponse);
             throw new IngestException("Could not find all metacards specified in request");
         }
 
-        updateRequest = rewriteRequestToAvoidHistoryConflicts(updateRequest, query);
+        updateRequest = rewriteRequestToAvoidHistoryConflicts(updateRequest, queryResponse);
 
-        HashMap<String, Metacard> metacardMap = new HashMap<>(query.getResults()
+        //Construct the metacardMap using the metacard's ID in order to match the UpdateRequest
+        HashMap<String, Metacard> metacardMap = new HashMap<>(queryResponse.getResults()
                 .stream()
                 .map(Result::getMetacard)
-                .collect(Collectors.toMap(metacard -> getAttributeStringValue(metacard,
-                        attributeName), Function.identity())));
+                .collect(Collectors.toMap(metacard -> getAttributeStringValue(metacard, Core.ID),
+                        Function.identity())));
         updateRequest.getProperties()
                 .put(Constants.ATTRIBUTE_UPDATE_MAP_KEY, metacardMap);
         updateRequest.getProperties()
@@ -657,7 +658,10 @@ public class UpdateOperations {
                         null,
                         false, /* total result count */
                         0   /* timeout */);
-        return new QueryRequestImpl(queryImpl, updateRequest.getStoreIds());
+        Map<String, Serializable> properties = new HashMap<>();
+        properties.put(SecurityConstants.SECURITY_SUBJECT,
+                opsSecuritySupport.getSubject(updateRequest));
+        return new QueryRequestImpl(queryImpl, false, updateRequest.getStoreIds(), properties);
     }
 
     private UpdateRequest validateLocalSource(UpdateRequest updateRequest)
@@ -733,6 +737,14 @@ public class UpdateOperations {
 
     private UpdateStorageRequest applyAttributeOverrides(UpdateStorageRequest updateStorageRequest,
             Map<String, Metacard> metacardMap) {
+        Map<String, Serializable> attributeOverrideHeaders =
+                (HashMap<String, Serializable>) updateStorageRequest.getProperties()
+                        .get(Constants.ATTRIBUTE_OVERRIDES_KEY);
+        OverrideAttributesSupport.applyAttributeOverridesToMetacardMap(attributeOverrideHeaders,
+                metacardMap);
+        updateStorageRequest.getProperties()
+                .remove(Constants.ATTRIBUTE_OVERRIDES_KEY);
+
         OverrideAttributesSupport.overrideAttributes(updateStorageRequest.getContentItems(),
                 metacardMap);
         return updateStorageRequest;
